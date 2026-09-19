@@ -1,0 +1,6 @@
+{
+  "name": "MUSLIM SHOP — Премиальный бутик в Атырау",
+  "description": "Премиальные товары для здоровья, красоты, натуральные продукты и товары для мусульман в Атырау. Бутик №24. Доставка по Казахстану и самовывоз.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

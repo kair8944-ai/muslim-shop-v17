@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Catalog item in Muslim Shop",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "titleRu": { "type": "string" },
+        "titleKz": { "type": "string" },
+        "price": { "type": "number" },
+        "oldPrice": { "type": "number" },
+        "categoryId": { "type": "string" },
+        "descriptionRu": { "type": "string" },
+        "descriptionKz": { "type": "string" },
+        "specsRu": { "type": "string" },
+        "specsKz": { "type": "string" },
+        "inStock": { "type": "boolean" },
+        "sku": { "type": "string" },
+        "isHit": { "type": "boolean" },
+        "isNew": { "type": "boolean" },
+        "isSale": { "type": "boolean" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["titleRu", "price", "categoryId"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nameRu": { "type": "string" },
+        "nameKz": { "type": "string" },
+        "icon": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["nameRu", "order"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Store configuration and contacts",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "city": { "type": "string" },
+        "boutiqueNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "instagram": { "type": "string" },
+        "adminPin": { "type": "string" }
+      }
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      }
+    }
+  }
+}
