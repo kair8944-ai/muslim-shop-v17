@@ -125,8 +125,14 @@ export default function App() {
 
   // 1. Subscribe to Firestore Products
   useEffect(() => {
+    // Safety fallback: in case Firestore is slow to respond on external hosting, ensure loading state resolves
+    const fallbackTimer = setTimeout(() => {
+      setIsLoadingProducts(false);
+    }, 4000);
+
     const unsubscribe = subscribeToProducts(
       (firestoreProducts) => {
+        clearTimeout(fallbackTimer);
         setProducts(firestoreProducts);
         setIsLoadingProducts(false);
         try {
@@ -136,12 +142,16 @@ export default function App() {
         }
       },
       (error) => {
+        clearTimeout(fallbackTimer);
         console.error('Failed to load products from Firestore:', error);
         setIsLoadingProducts(false);
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(fallbackTimer);
+      unsubscribe();
+    };
   }, []);
 
   // 2. Subscribe to Firestore Categories
