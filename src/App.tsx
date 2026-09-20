@@ -206,6 +206,59 @@ export default function App() {
     localStorage.setItem('muslim_shop_accessibility', JSON.stringify(accessibility));
   }, [accessibility]);
 
+  // Deep linking: Automatically open product detail modal if URL has ?p=prod-id or #prod-id
+  useEffect(() => {
+    if (products.length === 0) return;
+
+    const checkDirectLink = () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const pidFromQuery = urlParams.get('p') || urlParams.get('product');
+        const pidFromHash = window.location.hash ? window.location.hash.replace('#', '') : null;
+        const targetId = pidFromQuery || pidFromHash;
+
+        if (targetId) {
+          const found = products.find((p) => p.id === targetId || p.sku === targetId);
+          if (found) {
+            setSelectedProductForDetail(found);
+          }
+        }
+      } catch (err) {
+        console.error('Direct link check error:', err);
+      }
+    };
+
+    checkDirectLink();
+    window.addEventListener('popstate', checkDirectLink);
+    window.addEventListener('hashchange', checkDirectLink);
+
+    return () => {
+      window.removeEventListener('popstate', checkDirectLink);
+      window.removeEventListener('hashchange', checkDirectLink);
+    };
+  }, [products]);
+
+  const handleOpenDetail = (product: Product) => {
+    setSelectedProductForDetail(product);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('p', product.id);
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  };
+
+  const handleCloseDetail = () => {
+    setSelectedProductForDetail(null);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('p') || url.searchParams.has('product')) {
+        url.searchParams.delete('p');
+        url.searchParams.delete('product');
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {}
+  };
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
@@ -226,8 +279,8 @@ export default function App() {
     const pTitle = (lang === 'kz' && product.titleKz?.trim()) ? product.titleKz : product.titleRu;
     showToast(
       lang === 'kz'
-        ? `«${pTitle}» себетке қосылды!`
-        : `«${pTitle}» добавлен в корзину!`
+        ? `«${pTitle}» — өнім себетке жіберілді!`
+        : `«${pTitle}» — товар отправлен в корзину!`
     );
   };
 
@@ -348,9 +401,11 @@ export default function App() {
       {toastMessage && (
         <div
           id="toast-notification"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-stone-900 text-white px-5 py-3 rounded-2xl shadow-xl border border-amber-500/40 text-xs sm:text-sm font-semibold flex items-center gap-2 animate-bounce"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-emerald-950 text-white px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-amber-400 text-xs sm:text-sm font-bold flex items-center gap-3 animate-bounce"
         >
-          <CheckCircle2 className="w-4 h-4 text-amber-400" />
+          <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-white" />
+          </div>
           <span>{toastMessage}</span>
         </div>
       )}
@@ -471,7 +526,7 @@ export default function App() {
                 isInCart={cart.some((c) => c.product.id === product.id)}
                 onToggleFavorite={handleToggleFavorite}
                 onAddToCart={handleAddToCart}
-                onOpenDetail={setSelectedProductForDetail}
+                onOpenDetail={handleOpenDetail}
                 onQuickOrder={setSelectedProductForQuickOrder}
               />
             ))}
@@ -522,7 +577,7 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           onAddToCart={handleAddToCart}
           onQuickOrder={setSelectedProductForQuickOrder}
-          onClose={() => setSelectedProductForDetail(null)}
+          onClose={handleCloseDetail}
         />
       )}
 
@@ -556,7 +611,7 @@ export default function App() {
           lang={lang}
           onRemoveFavorite={handleToggleFavorite}
           onAddToCart={handleAddToCart}
-          onOpenDetail={setSelectedProductForDetail}
+          onOpenDetail={handleOpenDetail}
           onClose={() => setIsFavoritesOpen(false)}
         />
       )}
@@ -576,6 +631,7 @@ export default function App() {
           onDeleteProduct={(deletedId) =>
             setProducts((prev) => prev.filter((p) => p.id !== deletedId))
           }
+          onPreviewProduct={handleOpenDetail}
           onClose={() => setIsAdminOpen(false)}
         />
       )}

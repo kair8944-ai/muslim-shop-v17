@@ -16,9 +16,11 @@ import {
   MapPin,
   Clock,
   Eye,
+  Share2,
+  Check,
 } from 'lucide-react';
 import { AccessibilitySettings, Language, Product, StoreConfig } from '../types';
-import { formatPrice } from '../utils/formatters';
+import { formatPrice, getProductDirectUrl, copyTextToClipboard } from '../utils/formatters';
 
 interface ProductDetailModalProps {
   product: Product;
@@ -47,6 +49,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'desc' | 'benefits' | 'howTo' | 'specs'>('desc');
   const [isHighContrastReader, setIsHighContrastReader] = useState(false);
+  const [isLinkCopied, setIsLinkCopied] = useState(false);
+  const [isAddedToCartFeedback, setIsAddedToCartFeedback] = useState(false);
+
+  const handleAddToCartClick = () => {
+    onAddToCart(product);
+    setIsAddedToCartFeedback(true);
+    setTimeout(() => {
+      setIsAddedToCartFeedback(false);
+    }, 4000);
+  };
 
   const title = (lang === 'kz' && product.titleKz?.trim()) ? product.titleKz : product.titleRu;
   const description = (lang === 'kz' && product.descriptionKz?.trim()) ? product.descriptionKz : product.descriptionRu;
@@ -147,12 +159,42 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </button>
           </div>
 
-          {/* Right controls: Fullscreen toggle & Close */}
+          {/* Right controls: Share/Copy Link, Fullscreen toggle & Close */}
           <div className="flex items-center gap-2">
+            <button
+              id="copy-product-link-btn"
+              onClick={async () => {
+                const url = getProductDirectUrl(product.id);
+                const ok = await copyTextToClipboard(url);
+                if (ok) {
+                  setIsLinkCopied(true);
+                  setTimeout(() => setIsLinkCopied(false), 2500);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                isLinkCopied
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-emerald-900 hover:bg-emerald-800 text-amber-300'
+              }`}
+              title="Скопировать прямую ссылку на товар для отправки клиенту в WhatsApp"
+            >
+              {isLinkCopied ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{lang === 'kz' ? 'Көшірілді!' : 'Ссылка скопирована!'}</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>{lang === 'kz' ? 'Сілтеме' : 'Ссылка'}</span>
+                </>
+              )}
+            </button>
+
             <button
               id="toggle-fullscreen-btn"
               onClick={() => setIsFullscreen(!isFullscreen)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-900 hover:bg-emerald-800 text-amber-300 font-medium text-xs transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-900 hover:bg-emerald-800 text-amber-300 font-medium text-xs transition-colors cursor-pointer"
               title={isFullscreen ? 'Свернуть окно' : 'На весь экран смартфона'}
             >
               {isFullscreen ? (
@@ -163,7 +205,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               ) : (
                 <>
                   <Maximize2 className="w-4 h-4" />
-                  <span>{lang === 'kz' ? 'Толық экран' : 'На весь экран'}</span>
+                  <span className="hidden sm:inline">{lang === 'kz' ? 'Толық экран' : 'На весь экран'}</span>
                 </>
               )}
             </button>
@@ -171,7 +213,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             <button
               id="close-modal-btn"
               onClick={onClose}
-              className="p-1.5 rounded-lg bg-emerald-900/90 hover:bg-rose-700 text-white transition-colors"
+              className="p-1.5 rounded-lg bg-emerald-900/90 hover:bg-rose-700 text-white transition-colors cursor-pointer"
               title="Закрыть"
             >
               <X className="w-5 h-5" />
@@ -402,6 +444,29 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
               {/* Action Buttons: WhatsApp direct order, 1-Click order, Add to cart */}
               <div id="modal-actions-box" className="pt-4 border-t border-stone-200 space-y-3">
+                {/* Visual Feedback Banner: Товар отправлен в корзину */}
+                {isAddedToCartFeedback && (
+                  <div
+                    id="modal-cart-success-banner"
+                    className="p-3 bg-emerald-50 border-2 border-emerald-500 rounded-2xl text-emerald-950 text-xs sm:text-sm font-bold flex items-center justify-between gap-3 shadow-md animate-in fade-in zoom-in-95 duration-200"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-4 h-4 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-emerald-900 text-xs sm:text-sm">
+                          {lang === 'kz' ? 'Өнім себетке жіберілді!' : 'Товар отправлен в корзину!'}
+                        </p>
+                        <p className="text-[11px] text-emerald-700 font-normal">
+                          {lang === 'kz' ? 'Тапсырысты себеттен рәсімдеуге болады' : 'Вы можете перейти в корзину или продолжить выбор'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-emerald-700 text-xs font-mono">✓</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* WhatsApp Order Button */}
                   <a
@@ -426,14 +491,27 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   </button>
                 </div>
 
-                {/* Add to Cart full width button */}
+                {/* Add to Cart full width button with dynamic status */}
                 <button
                   id="modal-add-cart-btn"
-                  onClick={() => onAddToCart(product)}
-                  className="w-full px-5 py-3.5 rounded-xl bg-emerald-950 hover:bg-black text-white font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  onClick={handleAddToCartClick}
+                  className={`w-full px-5 py-3.5 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md ${
+                    isAddedToCartFeedback
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-4 ring-emerald-500/20 scale-[1.01]'
+                      : 'bg-emerald-950 hover:bg-black text-white'
+                  }`}
                 >
-                  <ShoppingBag className="w-5 h-5 text-amber-400" />
-                  <span>{lang === 'kz' ? 'Себетке қосу' : 'Добавить в корзину'}</span>
+                  {isAddedToCartFeedback ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-amber-300 animate-bounce" />
+                      <span>{lang === 'kz' ? '✓ Өнім себетке жіберілді!' : '✓ Товар отправлен в корзину!'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingBag className="w-5 h-5 text-amber-400" />
+                      <span>{lang === 'kz' ? 'Себетке қосу' : 'Добавить в корзину'}</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

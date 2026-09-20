@@ -124,3 +124,39 @@ export function generateQuickOrderUrl(
 
   return `https://wa.me/${config.whatsappNumber}?text=${encodeURIComponent(message)}`;
 }
+
+export function getProductDirectUrl(productId: string): string {
+  if (typeof window === 'undefined') return `?p=${encodeURIComponent(productId)}`;
+  const origin = window.location.origin;
+  const pathname = window.location.pathname;
+  return `${origin}${pathname}?p=${encodeURIComponent(productId)}`;
+}
+
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fallback to execCommand below
+    }
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    textarea.setAttribute('readonly', '');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const success = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return success;
+  } catch (err) {
+    console.error('Copy failed:', err);
+    return false;
+  }
+}

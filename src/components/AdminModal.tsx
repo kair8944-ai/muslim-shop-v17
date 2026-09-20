@@ -12,6 +12,11 @@ import {
   Edit2,
   AlertCircle,
   ExternalLink,
+  Link,
+  Copy,
+  LayoutGrid,
+  List,
+  Eye,
 } from 'lucide-react';
 import { Category, Language, Product, StoreConfig } from '../types';
 import {
@@ -19,6 +24,7 @@ import {
   deleteProductFromFirestore,
   saveSettingsToFirestore,
 } from '../services/firestoreService';
+import { getProductDirectUrl, copyTextToClipboard } from '../utils/formatters';
 
 interface AdminModalProps {
   config: StoreConfig;
@@ -29,6 +35,7 @@ interface AdminModalProps {
   onUpdateProduct: (product: Product) => void;
   onAddProduct: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
+  onPreviewProduct?: (product: Product) => void;
   onClose: () => void;
 }
 
@@ -41,6 +48,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onUpdateProduct,
   onAddProduct,
   onDeleteProduct,
+  onPreviewProduct,
   onClose,
 }) => {
   const [pin, setPin] = useState('');
@@ -51,9 +59,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Search & Filter in Admin products list
+  // Search, Filter & View Mode in Admin products list
   const [adminSearch, setAdminSearch] = useState('');
   const [adminCategoryFilter, setAdminCategoryFilter] = useState('all');
+  const [adminViewMode, setAdminViewMode] = useState<'grid' | 'list'>('grid');
+  const [copiedProductId, setCopiedProductId] = useState<string | null>(null);
+  const [copyFeedbackMsg, setCopyFeedbackMsg] = useState<string | null>(null);
 
   // Editing state for existing product
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -124,6 +135,23 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       } catch (err: any) {
         alert('Ошибка при удалении из Firestore: ' + err.message);
       }
+    }
+  };
+
+  const handleCopyDirectLink = async (product: Product) => {
+    const url = getProductDirectUrl(product.id);
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      setCopiedProductId(product.id);
+      setCopyFeedbackMsg(`Прямая ссылка на «${product.titleRu}» скопирована в буфер обмена!`);
+      setTimeout(() => {
+        setCopiedProductId((curr) => (curr === product.id ? null : curr));
+      }, 3000);
+      setTimeout(() => {
+        setCopyFeedbackMsg((curr) => (curr?.includes(product.titleRu) ? null : curr));
+      }, 5000);
+    } else {
+      alert(`Прямая ссылка на товар:\n${url}`);
     }
   };
 
@@ -214,7 +242,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       <div
         id="admin-modal-container"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-4xl bg-white rounded-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
+        className="w-full max-w-5xl xl:max-w-6xl bg-white rounded-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
       >
         {/* Header */}
         <div className="p-4 sm:p-5 bg-stone-900 text-white flex items-center justify-between border-b border-stone-800">
@@ -481,111 +509,398 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 </form>
               ) : activeTab === 'products' ? (
-                <div className="space-y-3">
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-2 border-b border-stone-100">
-                    <div className="relative flex-1 max-w-sm">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                      <input
-                        type="text"
-                        value={adminSearch}
-                        onChange={(e) => setAdminSearch(e.target.value)}
-                        placeholder="Поиск по названию или артикулу..."
-                        className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-stone-300 focus:ring-1 focus:ring-emerald-700"
-                      />
-                    </div>
-                    <select
-                      value={adminCategoryFilter}
-                      onChange={(e) => setAdminCategoryFilter(e.target.value)}
-                      className="text-xs px-3 py-1.5 rounded-xl border border-stone-300 bg-white"
-                    >
-                      <option value="all">Все категории ({products.length})</option>
-                      {categories
-                        .filter((c) => c.id !== 'cat-all')
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nameRu}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-
-                  <p className="text-[11px] text-stone-500">
-                    Товары синхронизированы в реальном времени с вашей базой Firestore (проект: muslim-shop-55c12).
-                  </p>
-
-                  <div className="divide-y divide-stone-100 border border-stone-200 rounded-2xl overflow-hidden bg-white max-h-[55vh] overflow-y-auto">
-                    {filteredAdminProducts.map((p) => (
-                      <div
-                        key={p.id}
-                        className="p-3 sm:p-3.5 flex items-center justify-between gap-3 text-xs hover:bg-stone-50/70 transition-colors"
+                <div className="space-y-3.5">
+                  {/* Copy Feedback Alert Toast */}
+                  {copyFeedbackMsg && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-950 text-xs font-semibold flex items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                          <Check className="w-3.5 h-3.5" />
+                        </div>
+                        <span>{copyFeedbackMsg}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCopyFeedbackMsg(null)}
+                        className="text-emerald-700 hover:text-emerald-950 text-sm font-bold px-2 py-0.5"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <img
-                            src={p.images[0]}
-                            alt=""
-                            className="w-10 h-16 rounded-lg object-cover bg-stone-100 shrink-0 border border-stone-200"
-                            onError={(e) => {
-                              (e.target as any).src =
-                                'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80';
-                            }}
-                          />
-                          <div className="min-w-0">
-                            <p className="font-bold text-stone-900 truncate max-w-xs sm:max-w-md">
-                              {p.titleRu}
-                            </p>
-                            <p className="text-[11px] text-stone-500">
-                              {categories.find((c) => c.id === p.categoryId)?.nameRu || p.categoryId} • Арт: {p.sku}
-                            </p>
-                          </div>
-                        </div>
+                        ✕
+                      </button>
+                    </div>
+                  )}
 
-                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              defaultValue={p.price}
-                              onBlur={(e) => handlePriceChange(p, Number(e.target.value))}
-                              className="w-20 px-2 py-1 border border-stone-300 rounded-lg text-right font-bold text-stone-900 text-xs"
-                            />
-                            <span className="font-semibold text-stone-500 text-xs">₸</span>
-                          </div>
-
-                          <button
-                            onClick={() => handleToggleStock(p)}
-                            className={`px-2.5 py-1 rounded-full font-bold text-[10px] sm:text-[11px] transition-colors cursor-pointer ${
-                              p.inStock
-                                ? 'bg-emerald-100 text-emerald-800 hover:bg-rose-100 hover:text-rose-800'
-                                : 'bg-rose-100 text-rose-800 hover:bg-emerald-100 hover:text-emerald-800'
-                            }`}
-                          >
-                            {p.inStock ? 'В наличии' : 'Нет'}
-                          </button>
-
-                          <button
-                            onClick={() => setEditingProduct(p)}
-                            className="p-1.5 rounded-lg text-stone-500 hover:text-emerald-900 hover:bg-emerald-50 transition-colors"
-                            title="Редактировать товар"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => handleDelete(p)}
-                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                            title="Удалить из каталога"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                  {/* Filter, Search & View Switcher */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-3 border-b border-stone-200/80">
+                    <div className="flex flex-1 items-center gap-2">
+                      <div className="relative flex-1 max-w-sm">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                        <input
+                          type="text"
+                          value={adminSearch}
+                          onChange={(e) => setAdminSearch(e.target.value)}
+                          placeholder="Поиск по названию или артикулу..."
+                          className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-700 bg-white"
+                        />
                       </div>
-                    ))}
+                      <select
+                        value={adminCategoryFilter}
+                        onChange={(e) => setAdminCategoryFilter(e.target.value)}
+                        className="text-xs px-3 py-2 rounded-xl border border-stone-300 bg-white text-stone-800 font-medium"
+                      >
+                        <option value="all">Все категории ({products.length})</option>
+                        {categories
+                          .filter((c) => c.id !== 'cat-all')
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nameRu}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
 
-                    {filteredAdminProducts.length === 0 && (
-                      <div className="p-8 text-center text-stone-400 text-xs">
-                        По вашему запросу товары не найдены
-                      </div>
-                    )}
+                    {/* View Mode Toggle */}
+                    <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl shrink-0 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => setAdminViewMode('grid')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          adminViewMode === 'grid'
+                            ? 'bg-white text-emerald-950 shadow-xs'
+                            : 'text-stone-600 hover:text-stone-900'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span>Крупные карточки</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdminViewMode('list')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          adminViewMode === 'list'
+                            ? 'bg-white text-emerald-950 shadow-xs'
+                            : 'text-stone-600 hover:text-stone-900'
+                        }`}
+                      >
+                        <List className="w-3.5 h-3.5" />
+                        <span>Список</span>
+                      </button>
+                    </div>
                   </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-stone-500">
+                    <span>
+                      Показано товаров: <b className="text-stone-800">{filteredAdminProducts.length}</b> из {products.length}
+                    </span>
+                    <span className="hidden sm:inline">
+                      💡 Нажмите <b>«Скопировать ссылку»</b> над любым товаром, чтобы отправить прямую ссылку клиенту
+                    </span>
+                  </div>
+
+                  {/* PRODUCTS CONTAINER */}
+                  {filteredAdminProducts.length === 0 ? (
+                    <div className="p-12 text-center text-stone-400 text-xs border border-dashed border-stone-200 rounded-2xl">
+                      По вашему запросу товары не найдены
+                    </div>
+                  ) : adminViewMode === 'grid' ? (
+                    /* 1. LARGE VISUAL CARDS GRID (9:16 VERTICAL RATIO) */
+                    <div
+                      id="admin-products-grid"
+                      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4.5 max-h-[60vh] overflow-y-auto pr-1 p-0.5"
+                    >
+                      {filteredAdminProducts.map((p) => {
+                        const directUrl = getProductDirectUrl(p.id);
+                        const isCopied = copiedProductId === p.id;
+                        const catName = categories.find((c) => c.id === p.categoryId)?.nameRu || p.categoryId;
+
+                        return (
+                          <div
+                            key={p.id}
+                            id={`admin-card-${p.id}`}
+                            className="bg-white rounded-2xl border border-stone-200 hover:border-amber-400/80 hover:shadow-md transition-all flex flex-col justify-between overflow-hidden relative group"
+                          >
+                            {/* TOP DIRECT LINK BAR (Над каждым товаром - по запросу пользователя) */}
+                            <div className="p-2.5 bg-stone-50 border-b border-stone-200/80 flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyDirectLink(p)}
+                                className={`flex-1 px-2.5 py-1.5 rounded-xl font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shadow-2xs ${
+                                  isCopied
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300/60'
+                                }`}
+                                title="Скопировать прямую ссылку на товар для отправки клиенту в WhatsApp"
+                              >
+                                {isCopied ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Ссылка скопирована!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Link className="w-3.5 h-3.5 text-amber-800 shrink-0" />
+                                    <span>Скопировать ссылку</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <a
+                                href={directUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1.5 rounded-xl bg-white border border-stone-200 text-stone-600 hover:text-stone-950 hover:bg-stone-100 transition-colors shrink-0"
+                                title="Открыть прямую ссылку в новой вкладке"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+
+                            {/* LARGE VISUAL IMAGE (9:16 Vertical Ratio) */}
+                            <div
+                              className="relative aspect-[9/16] max-h-72 w-full bg-stone-100 overflow-hidden cursor-pointer flex items-center justify-center border-b border-stone-100"
+                              onClick={() => setEditingProduct(p)}
+                              title="Нажмите для редактирования"
+                            >
+                              <img
+                                src={p.images[0]}
+                                alt={p.titleRu}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                onError={(e) => {
+                                  (e.target as any).src =
+                                    'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80';
+                                }}
+                              />
+
+                              {/* Badges on image */}
+                              <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 z-10">
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-stone-950/80 text-white backdrop-blur-xs shadow-xs">
+                                  {catName}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-white/95 text-stone-800 border border-stone-200 shadow-2xs">
+                                  Арт: {p.sku}
+                                </span>
+                              </div>
+
+                              {/* Stock Toggle Button directly on image */}
+                              <div className="absolute top-2.5 right-2.5 z-10">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleStock(p);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-full font-bold text-[10px] shadow-sm transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                    p.inStock
+                                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                      : 'bg-rose-600 text-white hover:bg-rose-700'
+                                  }`}
+                                  title="Нажмите для переключения наличия товара"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                  <span>{p.inStock ? 'В наличии' : 'Нет на складе'}</span>
+                                </button>
+                              </div>
+
+                              {/* Edit Cue Overlay */}
+                              <div className="absolute inset-0 bg-stone-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                <div className="px-3 py-1.5 rounded-xl bg-stone-950/80 text-white text-xs font-semibold flex items-center gap-1.5 backdrop-blur-xs shadow-md">
+                                  <Edit2 className="w-3.5 h-3.5 text-amber-300" />
+                                  <span>Редактировать</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* CARD DETAILS & FAST EDITING */}
+                            <div className="p-3.5 flex-1 flex flex-col justify-between gap-3">
+                              <div>
+                                <h4
+                                  className="font-bold text-stone-900 text-xs sm:text-sm leading-snug line-clamp-2 hover:text-emerald-800 transition-colors cursor-pointer"
+                                  onClick={() => setEditingProduct(p)}
+                                  title="Нажмите, чтобы редактировать подробное описание"
+                                >
+                                  {p.titleRu}
+                                </h4>
+                                {p.titleKz && p.titleKz !== p.titleRu && (
+                                  <p className="text-[11px] text-stone-500 line-clamp-1 mt-0.5">
+                                    {p.titleKz}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Fast Inline Price Editor */}
+                              <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-stone-600">Цена:</span>
+                                  <div className="flex items-center">
+                                    <input
+                                      type="number"
+                                      defaultValue={p.price}
+                                      onBlur={(e) => handlePriceChange(p, Number(e.target.value))}
+                                      className="w-24 px-2 py-1 border border-stone-300 rounded-lg text-right font-bold text-stone-900 text-xs focus:ring-2 focus:ring-emerald-700 bg-stone-50 focus:bg-white"
+                                      title="Измените цену и кликните в любое место для мгновенного сохранения"
+                                    />
+                                    <span className="font-bold text-stone-800 text-xs ml-1">₸</span>
+                                  </div>
+                                </div>
+
+                                {p.oldPrice && (
+                                  <span className="text-[10px] text-stone-400 line-through">
+                                    {p.oldPrice} ₸
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="flex items-center gap-2 pt-2.5 border-t border-stone-100">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingProduct(p)}
+                                  className="flex-1 py-1.5 px-2.5 rounded-xl bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                  title="Редактировать описание, фото и характеристики"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5 text-amber-300" />
+                                  <span>Редактировать</span>
+                                </button>
+
+                                {onPreviewProduct && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      onPreviewProduct(p);
+                                      onClose();
+                                    }}
+                                    className="p-1.5 rounded-xl border border-stone-300 text-stone-700 hover:text-emerald-900 hover:bg-stone-50 transition-colors cursor-pointer"
+                                    title="Посмотреть на сайте (как видит клиент)"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(p)}
+                                  className="p-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                  title="Удалить товар из базы данных"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* 2. COMPACT LIST VIEW */
+                    <div className="divide-y divide-stone-100 border border-stone-200 rounded-2xl overflow-hidden bg-white max-h-[60vh] overflow-y-auto">
+                      {filteredAdminProducts.map((p) => {
+                        const directUrl = getProductDirectUrl(p.id);
+                        const isCopied = copiedProductId === p.id;
+                        const catName = categories.find((c) => c.id === p.categoryId)?.nameRu || p.categoryId;
+
+                        return (
+                          <div
+                            key={p.id}
+                            className="p-3 sm:p-3.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs hover:bg-stone-50/70 transition-colors"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <img
+                                src={p.images[0]}
+                                alt=""
+                                className="w-14 h-20 rounded-xl object-cover bg-stone-100 shrink-0 border border-stone-200 cursor-pointer"
+                                onClick={() => setEditingProduct(p)}
+                                onError={(e) => {
+                                  (e.target as any).src =
+                                    'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80';
+                                }}
+                              />
+                              <div className="min-w-0">
+                                <p
+                                  className="font-bold text-stone-900 truncate max-w-xs sm:max-w-md hover:text-emerald-800 cursor-pointer"
+                                  onClick={() => setEditingProduct(p)}
+                                >
+                                  {p.titleRu}
+                                </p>
+                                <p className="text-[11px] text-stone-500">
+                                  {catName} • Арт: {p.sku}
+                                </p>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyDirectLink(p)}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors ${
+                                      isCopied
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-amber-100 text-amber-950 hover:bg-amber-200'
+                                    }`}
+                                  >
+                                    {isCopied ? (
+                                      <>
+                                        <Check className="w-3 h-3" />
+                                        <span>Ссылка скопирована!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Link className="w-3 h-3 text-amber-800" />
+                                        <span>Скопировать ссылку</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  <a
+                                    href={directUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-stone-400 hover:text-stone-700"
+                                    title="Открыть"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100">
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  defaultValue={p.price}
+                                  onBlur={(e) => handlePriceChange(p, Number(e.target.value))}
+                                  className="w-20 px-2 py-1 border border-stone-300 rounded-lg text-right font-bold text-stone-900 text-xs"
+                                />
+                                <span className="font-semibold text-stone-500 text-xs">₸</span>
+                              </div>
+
+                              <button
+                                onClick={() => handleToggleStock(p)}
+                                className={`px-2.5 py-1 rounded-full font-bold text-[10px] sm:text-[11px] transition-colors cursor-pointer ${
+                                  p.inStock
+                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-rose-100 hover:text-rose-800'
+                                    : 'bg-rose-100 text-rose-800 hover:bg-emerald-100 hover:text-emerald-800'
+                                }`}
+                              >
+                                {p.inStock ? 'В наличии' : 'Нет'}
+                              </button>
+
+                              <button
+                                onClick={() => setEditingProduct(p)}
+                                className="p-1.5 rounded-lg text-stone-500 hover:text-emerald-900 hover:bg-emerald-50 transition-colors"
+                                title="Редактировать товар"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleDelete(p)}
+                                className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                title="Удалить из каталога"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : activeTab === 'add' ? (
                 <form onSubmit={handleAddNewProduct} className="space-y-4 max-w-xl mx-auto">
