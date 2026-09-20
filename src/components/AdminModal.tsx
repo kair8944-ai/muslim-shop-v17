@@ -17,6 +17,10 @@ import {
   LayoutGrid,
   List,
   Eye,
+  Camera,
+  Upload,
+  Image as ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import { Category, Language, Product, StoreConfig } from '../types';
 import {
@@ -25,6 +29,7 @@ import {
   saveSettingsToFirestore,
 } from '../services/firestoreService';
 import { getProductDirectUrl, copyTextToClipboard } from '../utils/formatters';
+import { compressImageFile } from '../utils/imageCompressor';
 
 interface AdminModalProps {
   config: StoreConfig;
@@ -79,6 +84,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [newSpecsRu, setNewSpecsRu] = useState('');
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newInStock, setNewInStock] = useState(true);
+  const [isCompressingImage, setIsCompressingImage] = useState(false);
+
+  const handleImageFileUpload = async (
+    file: File,
+    target: 'new' | 'edit'
+  ) => {
+    if (!file) return;
+    setIsCompressingImage(true);
+    try {
+      const compressedDataUrl = await compressImageFile(file, 900, 900, 0.82);
+      if (target === 'new') {
+        setNewImageUrl(compressedDataUrl);
+      } else if (editingProduct) {
+        setEditingProduct({
+          ...editingProduct,
+          images: [compressedDataUrl],
+        });
+      }
+    } catch (err: any) {
+      alert('Ошибка при обработке фото: ' + (err?.message || 'Попробуйте другое изображение'));
+    } finally {
+      setIsCompressingImage(false);
+    }
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -460,20 +489,69 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
-                      Ссылка на изображение (URL)
+                    <label className="block text-xs font-bold text-stone-700 mb-1.5">
+                      Фотография товара
                     </label>
-                    <input
-                      type="text"
-                      value={editingProduct.images?.[0] || ''}
-                      onChange={(e) =>
-                        setEditingProduct({
-                          ...editingProduct,
-                          images: [e.target.value],
-                        })
-                      }
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 focus:ring-1 focus:ring-emerald-700"
-                    />
+
+                    {/* Image Preview & Upload Controls */}
+                    <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-20 h-20 rounded-xl border border-stone-200 bg-white overflow-hidden shrink-0 flex items-center justify-center relative">
+                          {editingProduct.images?.[0] ? (
+                            <img
+                              src={editingProduct.images[0]}
+                              alt="Preview"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <ImageIcon className="w-8 h-8 text-stone-300" />
+                          )}
+                          {isCompressingImage && (
+                            <div className="absolute inset-0 bg-stone-900/60 flex items-center justify-center text-white">
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 space-y-2">
+                          <label className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 cursor-pointer transition-colors shadow-xs active:scale-95">
+                            <Camera className="w-4 h-4" />
+                            <span>{isCompressingImage ? 'Обработка фото...' : 'Выбрать фото с телефона'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={isCompressingImage}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageFileUpload(file, 'edit');
+                              }}
+                            />
+                          </label>
+                          <p className="text-[11px] text-stone-500 leading-snug">
+                            Сделайте фото на камеру или выберите из галереи телефона. Фото автоматически оптимизируется.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-stone-200/80">
+                        <span className="block text-[10px] font-semibold text-stone-500 mb-1">
+                          Или укажите прямую ссылку на фото:
+                        </span>
+                        <input
+                          type="text"
+                          value={editingProduct.images?.[0] || ''}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              images: [e.target.value],
+                            })
+                          }
+                          placeholder="https://..."
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-stone-300 focus:ring-1 focus:ring-emerald-700 bg-white"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div>
@@ -996,16 +1074,64 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
-                      Ссылка на фото (URL)
+                    <label className="block text-xs font-bold text-stone-700 mb-1.5">
+                      Фотография товара
                     </label>
-                    <input
-                      type="text"
-                      value={newImageUrl}
-                      onChange={(e) => setNewImageUrl(e.target.value)}
-                      placeholder="https://... или вставьте прямую ссылку"
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 focus:ring-1 focus:ring-emerald-700"
-                    />
+
+                    {/* Image Preview & Upload Controls */}
+                    <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-20 h-20 rounded-xl border border-stone-200 bg-white overflow-hidden shrink-0 flex items-center justify-center relative">
+                          {newImageUrl ? (
+                            <img
+                              src={newImageUrl}
+                              alt="New product preview"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <ImageIcon className="w-8 h-8 text-stone-300" />
+                          )}
+                          {isCompressingImage && (
+                            <div className="absolute inset-0 bg-stone-900/60 flex items-center justify-center text-white">
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 space-y-2">
+                          <label className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 cursor-pointer transition-colors shadow-xs active:scale-95">
+                            <Camera className="w-4 h-4" />
+                            <span>{isCompressingImage ? 'Обработка фото...' : 'Выбрать фото с телефона'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={isCompressingImage}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageFileUpload(file, 'new');
+                              }}
+                            />
+                          </label>
+                          <p className="text-[11px] text-stone-500 leading-snug">
+                            Сделайте снимок на камеру или выберите фотографию из галереи телефона.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-stone-200/80">
+                        <span className="block text-[10px] font-semibold text-stone-500 mb-1">
+                          Или укажите ссылку на фото (не обязательно):
+                        </span>
+                        <input
+                          type="text"
+                          value={newImageUrl}
+                          onChange={(e) => setNewImageUrl(e.target.value)}
+                          placeholder="https://... или оставьте как есть"
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-stone-300 focus:ring-1 focus:ring-emerald-700 bg-white"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div>
