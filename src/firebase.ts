@@ -1,5 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 
 // Configuration loaded from firebase-applet-config.json
 const firebaseConfig = {
@@ -14,5 +18,19 @@ const firebaseConfig = {
 // Initialize Firebase App
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firestore (connects to default database where products, categories and settings reside)
-export const db = getFirestore(app);
+/**
+ * Initialize Firestore with:
+ * 1. Dedicated database ID
+ * 2. Multi-tab persistent local cache (enables instant offline load & background sync)
+ * 3. Auto-detect long polling (prevents WebChannel/WebSocket disconnects on mobile or restrictive networks)
+ */
+export const db = initializeFirestore(
+  app,
+  {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+    experimentalAutoDetectLongPolling: true,
+  },
+  'ai-studio-muslimshop-6c5697f5-1412-4eb6-8d95-aa2cc7a70c7b'
+);
