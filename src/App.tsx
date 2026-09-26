@@ -113,7 +113,7 @@ export default function App() {
   // Filtering & Search state
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('cat-all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'popular' | 'priceAsc' | 'priceDesc'>('popular');
+  const [sortBy, setSortBy] = useState<'popular' | 'newest' | 'priceAsc' | 'priceDesc'>('popular');
 
   // Modals state
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -378,10 +378,17 @@ export default function App() {
       .sort((a, b) => {
         if (sortBy === 'priceAsc') return a.price - b.price;
         if (sortBy === 'priceDesc') return b.price - a.price;
-        // Default popular
+        if (sortBy === 'newest') {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+        }
+        // Default popular: Hits first, but then newest products first!
         if (a.isHit && !b.isHit) return -1;
         if (!a.isHit && b.isHit) return 1;
-        return 0;
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
       });
   }, [products, selectedCategoryId, searchQuery, sortBy]);
 
@@ -484,6 +491,7 @@ export default function App() {
               className="text-xs sm:text-sm font-semibold py-2 px-3 rounded-xl border border-stone-200 bg-white text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-700 cursor-pointer shadow-2xs"
             >
               <option value="popular">{lang === 'kz' ? 'Танымалдығы бойынша' : 'Сначала популярные'}</option>
+              <option value="newest">{lang === 'kz' ? 'Алдымен жаңалары' : 'Сначала новинки'}</option>
               <option value="priceAsc">{lang === 'kz' ? 'Арзаннан қымбатқа' : 'Сначала недорогие'}</option>
               <option value="priceDesc">{lang === 'kz' ? 'Қымбаттан арзанға' : 'Сначала премиум'}</option>
             </select>
@@ -637,7 +645,11 @@ export default function App() {
           onUpdateProduct={(updated) =>
             setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
           }
-          onAddProduct={(newProd) => setProducts((prev) => [newProd, ...prev])}
+          onAddProduct={(newProd) => {
+            setProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newProd.id)]);
+            setSortBy('newest');
+            showToast(`✅ Товар «${newProd.titleRu}» успешно добавлен в каталог!`);
+          }}
           onDeleteProduct={(deletedId) =>
             setProducts((prev) => prev.filter((p) => p.id !== deletedId))
           }

@@ -79,6 +79,12 @@ export function subscribeToProducts(
       snapshot.forEach((docSnap) => {
         items.push(normalizeProduct(docSnap.id, docSnap.data()));
       });
+      // Sort newest products first by default
+      items.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+      });
       onSuccess(items);
     },
     (err) => {

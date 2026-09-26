@@ -84,6 +84,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [newSpecsRu, setNewSpecsRu] = useState('');
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newInStock, setNewInStock] = useState(true);
+  const [newIsHit, setNewIsHit] = useState(false);
+  const [newIsNew, setNewIsNew] = useState(true);
   const [isCompressingImage, setIsCompressingImage] = useState(false);
 
   const handleImageFileUpload = async (
@@ -111,11 +113,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin === config.adminPin || pin === '505534') {
+    if (pin.trim() === '505534') {
       setIsAuthenticated(true);
       setErrorMsg('');
     } else {
-      setErrorMsg('Неверный PIN-код (по умолчанию: 505534)');
+      setErrorMsg('Неверный пароль');
     }
   };
 
@@ -219,6 +221,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       specsRu: newSpecsRu.trim(),
       specsKz: '',
       inStock: newInStock,
+      isHit: newIsHit,
+      isNew: newIsNew,
       sku: `MS-${Math.floor(100 + Math.random() * 900)}`,
       images: [
         newImageUrl.trim() ||
@@ -237,7 +241,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setNewDescRu('');
       setNewSpecsRu('');
       setNewImageUrl('');
+      setNewIsHit(false);
+      setNewIsNew(true);
       setActiveTab('products');
+      setCopyFeedbackMsg(`✅ Товар «${newProd.titleRu}» успешно добавлен в каталог и опубликован на сайте!`);
+      setTimeout(() => {
+        setCopyFeedbackMsg(null);
+      }, 6000);
     } catch (err: any) {
       alert('Ошибка добавления товара в Firestore: ' + err.message);
     } finally {
@@ -486,6 +496,37 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         <option value="false">Нет в наличии</option>
                       </select>
                     </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80">
+                    <label className="flex items-center gap-2 text-xs font-bold text-stone-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editingProduct.isHit)}
+                        onChange={(e) =>
+                          setEditingProduct({
+                            ...editingProduct,
+                            isHit: e.target.checked,
+                          })
+                        }
+                        className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-700 w-4 h-4"
+                      />
+                      <span>🔥 Хит продаж (показывать первым)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-bold text-stone-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editingProduct.isNew)}
+                        onChange={(e) =>
+                          setEditingProduct({
+                            ...editingProduct,
+                            isNew: e.target.checked,
+                          })
+                        }
+                        className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-700 w-4 h-4"
+                      />
+                      <span>🌟 Новинка</span>
+                    </label>
                   </div>
 
                   <div>
@@ -1073,6 +1114,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-4 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80">
+                    <label className="flex items-center gap-2 text-xs font-bold text-stone-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIsHit}
+                        onChange={(e) => setNewIsHit(e.target.checked)}
+                        className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-700 w-4 h-4"
+                      />
+                      <span>🔥 Хит продаж (показывать в начале каталога)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-bold text-stone-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIsNew}
+                        onChange={(e) => setNewIsNew(e.target.checked)}
+                        className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-700 w-4 h-4"
+                      />
+                      <span>🌟 Отметить как «Новинка»</span>
+                    </label>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-bold text-stone-700 mb-1.5">
                       Фотография товара
@@ -1285,20 +1347,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         setCurrentConfig({ ...currentConfig, gis2Url: e.target.value })
                       }
                       className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
-                      PIN-код для входа администратора
-                    </label>
-                    <input
-                      type="text"
-                      value={currentConfig.adminPin}
-                      onChange={(e) =>
-                        setCurrentConfig({ ...currentConfig, adminPin: e.target.value })
-                      }
-                      className="w-48 px-3 py-2 text-xs rounded-xl border border-stone-300"
                     />
                   </div>
 
