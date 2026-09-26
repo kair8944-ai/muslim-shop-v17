@@ -69,3 +69,35 @@ export interface AccessibilitySettings {
 }
 
 export type DeliveryMethod = 'delivery' | 'pickup' | 'post';
+
+export interface DailyAnalytics {
+  id: string; // YYYY-MM-DD
+  date: string;
+  totalVisits: number;
+  uniqueVisitors: number;
+  pageViews: number;
+  mobileVisits: number;
+  desktopVisits: number;
+  ruVisits: number;
+  kzVisits: number;
+  productViews?: Record<string, { title: string; count: number }>;
+  updatedAt: string;
+}
+
+export interface AnalyticsOverview {
+  totalVisitsAllTime: number;
+  uniqueVisitorsAllTime: number;
+  totalPageViewsAllTime: number;
+  lastVisitAt?: string;
+}
+
+export interface VisitLogItem {
+  id: string;
+  visitorId: string;
+  timestamp: string;
+  device: 'mobile' | 'desktop' | 'tablet';
+  lang: 'ru' | 'kz';
+  page: string;
+  referrer?: string;
+  isNewVisitor?: boolean;
+}

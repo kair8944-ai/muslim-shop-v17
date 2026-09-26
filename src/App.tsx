@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   AccessibilitySettings,
   CartItem,
@@ -30,45 +30,84 @@ import {
   subscribeToProducts,
   subscribeToCategories,
   subscribeToSettings,
+  getProductById,
+  fetchUniversalCatalog,
+  isQuotaOrNetworkError,
 } from './services/firestoreService';
+import { trackVisit, trackProductView } from './services/analyticsService';
+import {
+  deduplicateProducts,
+  extractProductIdFromUrl,
+  getProductDirectUrl,
+} from './utils/formatters';
 
 export default function App() {
   // Config state
   const [config, setConfig] = useState<StoreConfig>(() => {
     try {
       const saved = localStorage.getItem('muslim_shop_config');
-      return saved ? JSON.parse(saved) : INITIAL_CONFIG;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const merged = { ...INITIAL_CONFIG, ...parsed };
+        if (!merged.taglineRu || merged.taglineRu === 'Красота. Здоровье. Вера.') {
+          merged.taglineRu = INITIAL_CONFIG.taglineRu;
+          merged.taglineKz = INITIAL_CONFIG.taglineKz;
+        }
+        if (
+          !merged.subtitleRu ||
+          merged.subtitleRu.includes('Премиальные товары для здоровья, красоты и повседневной')
+        ) {
+          merged.subtitleRu = INITIAL_CONFIG.subtitleRu;
+          merged.subtitleKz = INITIAL_CONFIG.subtitleKz;
+        }
+        return merged;
+      }
+      return INITIAL_CONFIG;
     } catch {
       return INITIAL_CONFIG;
     }
   });
 
-  // Categories state (starts with defaults, gets populated from Firestore)
-  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
-
-  // Products state (loads directly from Firestore)
-  const [products, setProducts] = useState<Product[]>(() => {
+  // Helper for tracking deleted categories to prevent resurrection from static defaults
+  const getDeletedCategoryIds = (): string[] => {
     try {
-      const saved = localStorage.getItem('muslim_shop_products');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // If it's old demo data, ignore it
-        if (
-          Array.isArray(parsed) &&
-          parsed.some((p: any) => p.sku === 'MS-101-OIL' || p.titleRu?.includes('Королевское'))
-        ) {
-          localStorage.removeItem('muslim_shop_products');
-          return [];
-        }
-        return parsed;
-      }
-      return [];
+      const raw = localStorage.getItem('muslim_shop_deleted_categories');
+      return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
     }
+  };
+
+  const addDeletedCategoryId = (id: string) => {
+    try {
+      const list = getDeletedCategoryIds();
+      if (!list.includes(id)) {
+        list.push(id);
+        localStorage.setItem('muslim_shop_deleted_categories', JSON.stringify(list));
+      }
+    } catch {}
+  };
+
+  // Categories state (starts with defaults/cache, gets populated from Firestore)
+  const [categories, setCategories] = useState<Category[]>(() => {
+    const deletedIds = getDeletedCategoryIds();
+    try {
+      const saved = localStorage.getItem('muslim_shop_categories');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((c: Category) => !deletedIds.includes(c.id));
+        }
+      }
+      return CATEGORIES.filter((c) => !deletedIds.includes(c.id));
+    } catch {
+      return CATEGORIES.filter((c) => !deletedIds.includes(c.id));
+    }
   });
 
-  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(products.length === 0);
+  // Products state (loads from shared server / Firestore catalog)
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
 
   // Language state
   const [lang, setLang] = useState<Language>(() => {
@@ -113,7 +152,7 @@ export default function App() {
   // Filtering & Search state
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('cat-all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'popular' | 'newest' | 'priceAsc' | 'priceDesc'>('popular');
+  const [sortBy, setSortBy] = useState<'popular' | 'priceAsc' | 'priceDesc'>('popular');
 
   // Modals state
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -122,28 +161,28 @@ export default function App() {
   const [isFavoritesOpen, setIsFavoritesOpen] = useState<boolean>(false);
   const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isDirectProductLoading, setIsDirectProductLoading] = useState<boolean>(false);
 
-  // 1. Subscribe to Firestore Products
+  // 1. Subscribe to Firestore & Universal Server Catalog Products
   useEffect(() => {
-    // Safety fallback: in case Firestore is slow to respond on external hosting, ensure loading state resolves
     const fallbackTimer = setTimeout(() => {
       setIsLoadingProducts(false);
-    }, 4000);
+    }, 15000);
 
     const unsubscribe = subscribeToProducts(
       (firestoreProducts) => {
         clearTimeout(fallbackTimer);
-        setProducts(firestoreProducts);
+        const deduped = deduplicateProducts(firestoreProducts);
+        setProducts(deduped);
         setIsLoadingProducts(false);
-        try {
-          localStorage.setItem('muslim_shop_products', JSON.stringify(firestoreProducts));
-        } catch {
-          // LocalStorage quota might be reached if base64 images exist
-        }
       },
       (error) => {
         clearTimeout(fallbackTimer);
-        console.error('Failed to load products from Firestore:', error);
+        if (isQuotaOrNetworkError(error)) {
+          console.warn('Firestore notice: operating via fallback catalog.');
+        } else {
+          console.warn('Could not load products from Firestore:', error);
+        }
         setIsLoadingProducts(false);
       }
     );
@@ -157,18 +196,38 @@ export default function App() {
   // 2. Subscribe to Firestore Categories
   useEffect(() => {
     const unsubscribe = subscribeToCategories((firestoreCategories) => {
+      const deletedIds = getDeletedCategoryIds();
+      const catMap = new Map<string, Category>();
+
       if (firestoreCategories.length > 0) {
-        // Ensure "cat-all" is the first category
-        const allCat: Category = {
-          id: 'cat-all',
-          nameRu: 'Все товары',
-          nameKz: 'Барлық өнімдер',
-          icon: '✨',
-          order: 0,
-        };
-        const uniqueCats = firestoreCategories.filter((c) => c.id !== 'cat-all');
-        setCategories([allCat, ...uniqueCats]);
+        firestoreCategories.forEach((fc) => {
+          if (!deletedIds.includes(fc.id)) {
+            catMap.set(fc.id, fc);
+          }
+        });
+      } else {
+        CATEGORIES.filter((c) => !deletedIds.includes(c.id)).forEach((c) =>
+          catMap.set(c.id, c)
+        );
       }
+
+      // Ensure "cat-all" is the first category
+      const allCat: Category = catMap.get('cat-all') || {
+        id: 'cat-all',
+        nameRu: 'Все товары',
+        nameKz: 'Барлық өнімдер',
+        icon: '✨',
+        order: 0,
+      };
+      catMap.delete('cat-all');
+
+      const otherCats = Array.from(catMap.values()).sort((a, b) => a.order - b.order);
+      const merged = [allCat, ...otherCats];
+
+      setCategories(merged);
+      try {
+        localStorage.setItem('muslim_shop_categories', JSON.stringify(merged));
+      } catch {}
     });
 
     return () => unsubscribe();
@@ -216,44 +275,135 @@ export default function App() {
     localStorage.setItem('muslim_shop_accessibility', JSON.stringify(accessibility));
   }, [accessibility]);
 
+  // Helper to match targetId against products array with high tolerance
+  const findProductMatch = useCallback((list: Product[], targetId: string): Product | undefined => {
+    if (!targetId || !Array.isArray(list) || list.length === 0) return undefined;
+    const clean = targetId.trim().toLowerCase();
+
+    // 1. Strict ID match or case-insensitive match
+    let found = list.find((p) => p.id === targetId || p.id.toLowerCase() === clean);
+    if (found) return found;
+
+    // 2. SKU match
+    found = list.find((p) => p.sku && (p.sku === targetId || p.sku.toLowerCase() === clean));
+    if (found) return found;
+
+    // 3. Match without prefix 'prod-'
+    const cleanNoPrefix = clean.replace(/^prod-/, '');
+    found = list.find((p) => p.id.toLowerCase().replace(/^prod-/, '') === cleanNoPrefix);
+    if (found) return found;
+
+    // 4. Match SKU numeric part
+    const numPart = clean.replace(/^[a-z]+-?/i, '');
+    if (numPart && numPart.length >= 3) {
+      found = list.find((p) => p.sku && p.sku.toLowerCase().endsWith(numPart));
+      if (found) return found;
+    }
+
+    return undefined;
+  }, []);
+
   // Deep linking: Automatically open product detail modal if URL has ?p=prod-id or #prod-id
   useEffect(() => {
-    if (products.length === 0) return;
+    let isCancelled = false;
 
-    const checkDirectLink = () => {
+    const resolveDirectLink = async () => {
+      const targetId = extractProductIdFromUrl();
+      if (!targetId) {
+        // If there is no targetId in URL (e.g. user navigated Back via browser button), close detail modal
+        setSelectedProductForDetail((curr) => (curr ? null : curr));
+        return;
+      }
+
+      // 1. Check if already loaded in current state
+      const existing = findProductMatch(products, targetId);
+      if (existing) {
+        setSelectedProductForDetail(existing);
+        const title = (lang === 'kz' && existing.titleKz?.trim()) ? existing.titleKz : existing.titleRu;
+        document.title = `${title} — ${config.storeName}`;
+        return;
+      }
+
+      // 2. Check cached products in localStorage
       try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const pidFromQuery = urlParams.get('p') || urlParams.get('product');
-        const pidFromHash = window.location.hash ? window.location.hash.replace('#', '') : null;
-        const targetId = pidFromQuery || pidFromHash;
+        const cachedRaw = localStorage.getItem('muslim_shop_products_cache') || localStorage.getItem('muslim_shop_products');
+        if (cachedRaw) {
+          const cachedList = JSON.parse(cachedRaw);
+          const cachedMatch = findProductMatch(cachedList, targetId);
+          if (cachedMatch) {
+            setSelectedProductForDetail(cachedMatch);
+            const title = (lang === 'kz' && cachedMatch.titleKz?.trim()) ? cachedMatch.titleKz : cachedMatch.titleRu;
+            document.title = `${title} — ${config.storeName}`;
+            return;
+          }
+        }
+      } catch {}
 
-        if (targetId) {
-          const found = products.find((p) => p.id === targetId || p.sku === targetId);
-          if (found) {
-            setSelectedProductForDetail(found);
+      // 3. Directly fetch single document from Firestore by ID or SKU
+      setIsDirectProductLoading(true);
+      try {
+        const directProd = await getProductById(targetId);
+        if (isCancelled) return;
+
+        if (directProd) {
+          setSelectedProductForDetail(directProd);
+          const title = (lang === 'kz' && directProd.titleKz?.trim()) ? directProd.titleKz : directProd.titleRu;
+          document.title = `${title} — ${config.storeName}`;
+
+          // Also inject into products list if not yet included so catalog renders it
+          setProducts((prev) => {
+            if (prev.some((p) => p.id === directProd.id)) return prev;
+            return [directProd, ...prev];
+          });
+        } else {
+          // If products collection is still loading, wait; otherwise notify user
+          if (!isLoadingProducts) {
+            setToastMessage(
+              lang === 'kz'
+                ? 'Өнім сілтемесі бойынша табылмады немесе сатылымнан алынды'
+                : 'Товар по ссылке не найден или был снят с продажи'
+            );
+            setTimeout(() => setToastMessage(null), 4000);
           }
         }
       } catch (err) {
-        console.error('Direct link check error:', err);
+        console.error('Direct link resolution error:', err);
+      } finally {
+        if (!isCancelled) {
+          setIsDirectProductLoading(false);
+        }
       }
     };
 
-    checkDirectLink();
-    window.addEventListener('popstate', checkDirectLink);
-    window.addEventListener('hashchange', checkDirectLink);
+    resolveDirectLink();
+
+    const handleUrlChange = () => {
+      resolveDirectLink();
+    };
+
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
 
     return () => {
-      window.removeEventListener('popstate', checkDirectLink);
-      window.removeEventListener('hashchange', checkDirectLink);
+      isCancelled = true;
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
     };
-  }, [products]);
+  }, [products, isLoadingProducts, lang, config.storeName, findProductMatch]);
+
+  // Track visitor traffic safely
+  useEffect(() => {
+    trackVisit({ page: 'Каталог бутика', lang, isInitialLoad: true });
+  }, []);
 
   const handleOpenDetail = (product: Product) => {
     setSelectedProductForDetail(product);
+    trackProductView(product.id, product.titleRu);
     try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('p', product.id);
-      window.history.replaceState({}, '', url.toString());
+      const targetUrl = getProductDirectUrl(product.id);
+      window.history.pushState({ productId: product.id }, '', targetUrl);
+      const title = (lang === 'kz' && product.titleKz?.trim()) ? product.titleKz : product.titleRu;
+      document.title = `${title} — ${config.storeName}`;
     } catch {}
   };
 
@@ -261,11 +411,10 @@ export default function App() {
     setSelectedProductForDetail(null);
     try {
       const url = new URL(window.location.href);
-      if (url.searchParams.has('p') || url.searchParams.has('product')) {
-        url.searchParams.delete('p');
-        url.searchParams.delete('product');
-        window.history.replaceState({}, '', url.toString());
-      }
+      ['p', 'product', 'prod', 'id', 'sku', 'item'].forEach((k) => url.searchParams.delete(k));
+      const cleanPath = url.pathname + (url.search ? url.search : '');
+      window.history.replaceState({}, '', cleanPath);
+      document.title = `${config.storeName} — ${lang === 'kz' ? config.taglineKz : config.taglineRu} | Бутик №24`;
     } catch {}
   };
 
@@ -354,8 +503,8 @@ export default function App() {
     return products
       .filter((p) => {
         // Category filter
-        if (selectedCategoryId === 'cat-hits') return p.isHit;
-        if (selectedCategoryId === 'cat-new') return p.isNew;
+        if (selectedCategoryId === 'cat-hits') return Boolean(p.isHit);
+        if (selectedCategoryId === 'cat-new') return Boolean(p.isNew);
         if (selectedCategoryId !== 'cat-all' && p.categoryId !== selectedCategoryId) {
           return false;
         }
@@ -378,17 +527,16 @@ export default function App() {
       .sort((a, b) => {
         if (sortBy === 'priceAsc') return a.price - b.price;
         if (sortBy === 'priceDesc') return b.price - a.price;
-        if (sortBy === 'newest') {
-          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
-        }
-        // Default popular: Hits first, but then newest products first!
+        
+        // Default "popular" sorting:
+        // 1. First priority: Hits of sales (isHit)
         if (a.isHit && !b.isHit) return -1;
         if (!a.isHit && b.isHit) return 1;
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+        
+        // 2. Second priority: Newest products first (by createdAt or ID timestamp)
+        const timeA = a.createdAt || (a.id.startsWith('prod-') ? a.id.replace('prod-', '') : '');
+        const timeB = b.createdAt || (b.id.startsWith('prod-') ? b.id.replace('prod-', '') : '');
+        return timeB.localeCompare(timeA);
       });
   }, [products, selectedCategoryId, searchQuery, sortBy]);
 
@@ -402,15 +550,15 @@ export default function App() {
   return (
     <div
       id="app-root"
-      className={`min-h-screen flex flex-col transition-colors ${
+      className={`min-h-screen w-full max-w-full overflow-x-hidden flex flex-col transition-colors ${
         accessibility.highContrast
-          ? 'bg-amber-50/30 text-stone-950 font-normal contrast-125'
+          ? 'bg-white text-black font-semibold selection:bg-amber-300 selection:text-black'
           : 'bg-[#FAF8F5] text-stone-900'
       } ${
         accessibility.scale === 'extra'
-          ? 'text-lg'
+          ? 'text-lg sm:text-xl'
           : accessibility.scale === 'large'
-          ? 'text-base'
+          ? 'text-base sm:text-lg'
           : 'text-sm'
       }`}
     >
@@ -424,6 +572,17 @@ export default function App() {
             <CheckCircle2 className="w-4 h-4 text-white" />
           </div>
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Loading banner when opening a direct link from Instagram Story or WhatsApp */}
+      {isDirectProductLoading && !selectedProductForDetail && (
+        <div
+          id="direct-product-loader"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-emerald-950/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-2xl border border-amber-400/80 text-xs sm:text-sm font-bold flex items-center gap-3 animate-pulse"
+        >
+          <Loader2 className="w-5 h-5 text-amber-300 animate-spin shrink-0" />
+          <span>{lang === 'kz' ? 'Өнім жүктелуде...' : 'Загружаем товар по ссылке...'}</span>
         </div>
       )}
 
@@ -444,15 +603,23 @@ export default function App() {
       />
 
       {/* Hero Banner with Islamic Elegance & Boutique Highlights */}
-      <HeroBanner config={config} lang={lang} onScrollToCatalog={scrollToCatalog} />
+      <HeroBanner
+        config={config}
+        lang={lang}
+        onScrollToCatalog={scrollToCatalog}
+        categories={categories}
+        selectedCategoryId={selectedCategoryId}
+        onSelectCategory={setSelectedCategoryId}
+      />
 
-      {/* Category Horizontal Nav Filter */}
+      {/* Category Nav Filter — All visible side-by-side without horizontal scrolling */}
       <CategoryFilter
         categories={categories}
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={setSelectedCategoryId}
         lang={lang}
         productCounts={productCounts}
+        onOpenAdminCategories={() => setIsAdminOpen(true)}
       />
 
       {/* Main Catalog Content */}
@@ -491,7 +658,6 @@ export default function App() {
               className="text-xs sm:text-sm font-semibold py-2 px-3 rounded-xl border border-stone-200 bg-white text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-700 cursor-pointer shadow-2xs"
             >
               <option value="popular">{lang === 'kz' ? 'Танымалдығы бойынша' : 'Сначала популярные'}</option>
-              <option value="newest">{lang === 'kz' ? 'Алдымен жаңалары' : 'Сначала новинки'}</option>
               <option value="priceAsc">{lang === 'kz' ? 'Арзаннан қымбатқа' : 'Сначала недорогие'}</option>
               <option value="priceDesc">{lang === 'kz' ? 'Қымбаттан арзанға' : 'Сначала премиум'}</option>
             </select>
@@ -520,13 +686,27 @@ export default function App() {
                 : 'Попробуйте изменить запрос в строке поиска или выберите другую категорию'}
             </p>
             <button
-              onClick={() => {
+              onClick={async () => {
                 setSearchQuery('');
                 setSelectedCategoryId('cat-all');
+                if (products.length === 0) {
+                  setIsLoadingProducts(true);
+                  const cat = await fetchUniversalCatalog();
+                  if (cat && cat.products.length > 0) {
+                    setProducts(deduplicateProducts(cat.products));
+                  }
+                  setIsLoadingProducts(false);
+                }
               }}
               className="px-5 py-2 rounded-xl bg-emerald-900 text-white text-xs font-bold hover:bg-emerald-950 transition-colors"
             >
-              {lang === 'kz' ? 'Барлық өнімдерді көрсету' : 'Сбросить фильтры'}
+              {products.length === 0
+                ? lang === 'kz'
+                  ? 'Каталогты қайта жүктеу'
+                  : 'Обновить каталог'
+                : lang === 'kz'
+                ? 'Барлық өнімдерді көрсету'
+                : 'Сбросить фильтры'}
             </button>
           </div>
         ) : (
@@ -546,6 +726,7 @@ export default function App() {
                 onAddToCart={handleAddToCart}
                 onOpenDetail={handleOpenDetail}
                 onQuickOrder={setSelectedProductForQuickOrder}
+                onShareFeedback={showToast}
               />
             ))}
           </div>
@@ -590,6 +771,7 @@ export default function App() {
           product={selectedProductForDetail}
           config={config}
           lang={lang}
+          onLanguageChange={setLang}
           accessibility={accessibility}
           isFavorite={favorites.some((f) => f.id === selectedProductForDetail.id)}
           onToggleFavorite={handleToggleFavorite}
@@ -641,19 +823,88 @@ export default function App() {
           products={products}
           categories={categories}
           lang={lang}
-          onUpdateConfig={setConfig}
-          onUpdateProduct={(updated) =>
-            setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
-          }
-          onAddProduct={(newProd) => {
-            setProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newProd.id)]);
-            setSortBy('newest');
-            showToast(`✅ Товар «${newProd.titleRu}» успешно добавлен в каталог!`);
+          onUpdateConfig={(newCfg) => {
+            setConfig(newCfg);
+            try {
+              localStorage.setItem('muslim_shop_config', JSON.stringify(newCfg));
+            } catch {}
           }}
-          onDeleteProduct={(deletedId) =>
-            setProducts((prev) => prev.filter((p) => p.id !== deletedId))
-          }
+          onUpdateProduct={(updated) => {
+            setProducts((prev) => {
+              const next = deduplicateProducts(prev.map((p) => (p.id === updated.id ? updated : p)));
+              try {
+                localStorage.setItem('muslim_shop_products', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+          }}
+          onAddProduct={(newProd) => {
+            setProducts((prev) => {
+              const alreadyExists = prev.some(
+                (p) => p.id === newProd.id || (p.sku && newProd.sku && p.sku === newProd.sku)
+              );
+              if (alreadyExists) return prev;
+              const next = deduplicateProducts([newProd, ...prev]);
+              try {
+                localStorage.setItem('muslim_shop_products', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+            showToast(lang === 'kz' ? 'Өнім сәтті қосылды!' : 'Товар успешно добавлен в каталог!');
+          }}
+          onDeleteProduct={(deletedId) => {
+            setProducts((prev) => {
+              const next = prev.filter((p) => p.id !== deletedId);
+              try {
+                localStorage.setItem('muslim_shop_products', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+            showToast(lang === 'kz' ? 'Өнім жойылды' : 'Товар удален из каталога');
+          }}
           onPreviewProduct={handleOpenDetail}
+          onAddCategory={(newCat) => {
+            // Remove from deleted list if present
+            try {
+              const currentDeleted = getDeletedCategoryIds().filter((id) => id !== newCat.id);
+              localStorage.setItem('muslim_shop_deleted_categories', JSON.stringify(currentDeleted));
+            } catch {}
+            setCategories((prev) => {
+              const exists = prev.some((c) => c.id === newCat.id);
+              if (exists) return prev;
+              const updated = [...prev, newCat];
+              try {
+                localStorage.setItem('muslim_shop_categories', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+            showToast(lang === 'kz' ? 'Каталог қосылды!' : 'Каталог успешно добавлен!');
+          }}
+          onUpdateCategory={(updatedCat) => {
+            setCategories((prev) => {
+              const updated = prev.map((c) => (c.id === updatedCat.id ? updatedCat : c));
+              try {
+                localStorage.setItem('muslim_shop_categories', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+            showToast(lang === 'kz' ? 'Каталог жаңартылды!' : 'Каталог успешно обновлен!');
+          }}
+          onDeleteCategory={(deletedCatId) => {
+            addDeletedCategoryId(deletedCatId);
+            setCategories((prev) => {
+              const updated = prev.filter((c) => c.id !== deletedCatId);
+              try {
+                localStorage.setItem('muslim_shop_categories', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+            // If the deleted category was currently selected, reset to 'cat-all'
+            if (selectedCategoryId === deletedCatId) {
+              setSelectedCategoryId('cat-all');
+            }
+            showToast(lang === 'kz' ? 'Каталог жойылды' : 'Каталог удален');
+          }}
           onClose={() => setIsAdminOpen(false)}
         />
       )}

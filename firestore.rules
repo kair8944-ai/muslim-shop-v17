@@ -1,6 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Connection test document
+    match /test/{docId} {
+      allow read: if true;
+    }
+
     // Products catalog: publicly readable, writable for store management
     match /products/{productId} {
       allow read: if true;
@@ -21,6 +26,17 @@ service cloud.firestore {
 
     // Orders: allow customer creation and admin management
     match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    // Analytics: track daily stats, visits and summary
+    match /analytics_daily/{dateId} {
+      allow read, write: if true;
+    }
+    match /analytics_summary/{docId} {
+      allow read, write: if true;
+    }
+    match /analytics_visits/{visitId} {
       allow read, write: if true;
     }
   }

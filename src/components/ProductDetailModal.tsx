@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Maximize2,
@@ -6,6 +7,7 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  RotateCw,
   Sparkles,
   ShieldCheck,
   CheckCircle2,
@@ -18,14 +20,23 @@ import {
   Eye,
   Share2,
   Check,
+  Globe,
+  Loader2,
 } from 'lucide-react';
 import { AccessibilitySettings, Language, Product, StoreConfig } from '../types';
-import { formatPrice, getProductDirectUrl, copyTextToClipboard } from '../utils/formatters';
+import { formatPrice, getProductDirectUrl, copyTextToClipboard, shareOrCopyProduct } from '../utils/formatters';
+import {
+  getProductKazakhTranslation,
+  hasExplicitKazakhTranslation,
+  isGenuinelyKazakh,
+  TranslatedProductData,
+} from '../services/translationService';
 
 interface ProductDetailModalProps {
   product: Product;
   config: StoreConfig;
   lang: Language;
+  onLanguageChange?: (lang: Language) => void;
   accessibility: AccessibilitySettings;
   isFavorite: boolean;
   onToggleFavorite: (product: Product) => void;
@@ -38,6 +49,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   product,
   config,
   lang,
+  onLanguageChange,
+  accessibility,
   isFavorite,
   onToggleFavorite,
   onAddToCart,
@@ -45,12 +58,96 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onClose,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState<number>(100); // 100% to 220%
+  const [zoomLevel, setZoomLevel] = useState<number>(
+    accessibility.scale === 'extra' ? 150 : accessibility.scale === 'large' ? 125 : 100
+  );
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'desc' | 'benefits' | 'howTo' | 'specs'>('desc');
   const [isHighContrastReader, setIsHighContrastReader] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
   const [isAddedToCartFeedback, setIsAddedToCartFeedback] = useState(false);
+
+  // Active language inside modal (synchronized with store language)
+  const [currentLang, setCurrentLang] = useState<Language>(lang);
+  const [translatedKzData, setTranslatedKzData] = useState<TranslatedProductData | null>(null);
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+
+  useEffect(() => {
+    setCurrentLang(lang);
+  }, [lang]);
+
+  // Translation runner with support for force refresh
+  const runKazakhTranslation = useCallback(
+    async (forceRefresh: boolean = false) => {
+      // If the product in DB already has genuine Kazakh description, use it directly
+      if (!forceRefresh && hasExplicitKazakhTranslation(product)) {
+        setTranslatedKzData({
+          titleKz: product.titleKz || product.titleRu,
+          descriptionKz: product.descriptionKz!,
+          specsKz: product.specsKz || product.specsRu || '',
+          benefitsKz:
+            product.benefitsKz && product.benefitsKz.length > 0 ? product.benefitsKz : product.benefitsRu,
+          howToUseKz: product.howToUseKz || product.howToUseRu || '',
+        });
+        return;
+      }
+
+      setIsTranslating(true);
+      try {
+        const data = await getProductKazakhTranslation(product, forceRefresh);
+        if (data && data.descriptionKz) {
+          setTranslatedKzData(data);
+        }
+      } catch (err) {
+        console.warn('Translation execution failed:', err);
+      } finally {
+        setIsTranslating(false);
+      }
+    },
+    [product]
+  );
+
+  // Automatic high-quality translation to Kazakh when viewing in Kazakh
+  useEffect(() => {
+    if (currentLang === 'kz') {
+      runKazakhTranslation(false);
+    }
+  }, [product.id, currentLang, runKazakhTranslation]);
+
+  const handleLangSwitch = (newLang: Language) => {
+    setCurrentLang(newLang);
+    if (onLanguageChange) {
+      onLanguageChange(newLang);
+    }
+    if (newLang === 'kz') {
+      runKazakhTranslation(false);
+    }
+  };
+
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const scrollBodyRef = useRef<HTMLDivElement>(null);
+
+  // Lock background scroll & handle Escape key
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    // Ensure modal scroll starts from the top
+    if (backdropRef.current) backdropRef.current.scrollTop = 0;
+    if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
 
   const handleAddToCartClick = () => {
     onAddToCart(product);
@@ -60,30 +157,56 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }, 4000);
   };
 
-  const title = (lang === 'kz' && product.titleKz?.trim()) ? product.titleKz : product.titleRu;
-  const description = (lang === 'kz' && product.descriptionKz?.trim()) ? product.descriptionKz : product.descriptionRu;
-  const specs = (lang === 'kz' && product.specsKz?.trim()) ? product.specsKz : product.specsRu;
-  const benefits = (lang === 'kz' && product.benefitsKz && product.benefitsKz.length > 0) ? product.benefitsKz : product.benefitsRu;
-  const howToUse = (lang === 'kz' && product.howToUseKz?.trim()) ? product.howToUseKz : product.howToUseRu;
+  const isKz = currentLang === 'kz';
+
+  // Title: prioritize genuine Kazakh translation
+  const title = isKz
+    ? (translatedKzData?.titleKz || (hasExplicitKazakhTranslation(product) ? product.titleKz : null) || product.titleRu)
+    : product.titleRu;
+
+  // Description: prioritize genuine Kazakh translation
+  const description = isKz
+    ? (translatedKzData?.descriptionKz || (hasExplicitKazakhTranslation(product) ? product.descriptionKz : null) || product.descriptionRu)
+    : product.descriptionRu;
+
+  const specs = isKz
+    ? (translatedKzData?.specsKz || product.specsKz || product.specsRu || '')
+    : (product.specsRu || '');
+
+  const benefits = isKz
+    ? (translatedKzData?.benefitsKz || (product.benefitsKz && product.benefitsKz.length > 0 ? product.benefitsKz : product.benefitsRu))
+    : product.benefitsRu;
+
+  const howToUse = isKz
+    ? (translatedKzData?.howToUseKz || product.howToUseKz || product.howToUseRu)
+    : product.howToUseRu;
 
   const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 25, 225));
   const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 25, 100));
-  const handleResetZoom = () => setZoomLevel(100);
+  const handleResetZoom = () =>
+    setZoomLevel(accessibility.scale === 'extra' ? 150 : accessibility.scale === 'large' ? 125 : 100);
 
   // Dynamic font size and line height based on zoomLevel
   const dynamicFontSize = `${(zoomLevel / 100) * 1.05}rem`;
   const dynamicLineHeight = `${(zoomLevel / 100) * 1.75}rem`;
 
+  const isHighContrast = isHighContrastReader || accessibility.highContrast;
+
   const waDirectMessage = encodeURIComponent(
-    lang === 'kz'
-      ? `Сәлеметсіз бе, ${config.storeName}! Маған мына өнім бойынша толық ақпарат беріңізші:\n${title} (арт: ${product.sku}, бағасы: ${formatPrice(product.price)})`
-      : `Здравствуйте, ${config.storeName}! Меня интересует товар:\n${title} (арт: ${product.sku}, цена: ${formatPrice(product.price)}). Хочу заказать!`
+    !product.inStock
+      ? (isKz
+          ? `Сәлеметсіз бе, ${config.storeName}! Мына өнім қашан сатылымға шығады? Келуін күтіп жатырмын:\n${title} (арт: ${product.sku}, бағасы: ${formatPrice(product.price)}). Келгенде хабарласыңызшы!`
+          : `Здравствуйте, ${config.storeName}! Подскажите, когда появится в наличии товар:\n${title} (арт: ${product.sku}, цена: ${formatPrice(product.price)}). Хочу забронировать / оформить предзаказ!`)
+      : (isKz
+          ? `Сәлеметсіз бе, ${config.storeName}! Маған мына өнім бойынша толық ақпарат беріңізші:\n${title} (арт: ${product.sku}, бағасы: ${formatPrice(product.price)})`
+          : `Здравствуйте, ${config.storeName}! Меня интересует товар:\n${title} (арт: ${product.sku}, цена: ${formatPrice(product.price)}). Хочу заказать!`)
   );
 
-  return (
+  const modalElement = (
     <div
+      ref={backdropRef}
       id="product-modal-backdrop"
-      className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-[100] bg-stone-950/85 backdrop-blur-xs flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto overscroll-contain"
       onClick={onClose}
     >
       <div
@@ -91,9 +214,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         className={`bg-white transition-all overflow-hidden flex flex-col ${
           isFullscreen
-            ? 'fixed inset-0 w-screen h-screen rounded-none z-50'
-            : 'w-full max-w-4xl max-h-[92vh] sm:rounded-3xl shadow-2xl border border-amber-900/20'
-        } ${isHighContrastReader ? 'bg-amber-50/40 text-stone-950' : 'bg-white text-stone-900'}`}
+            ? 'fixed inset-0 w-full h-full rounded-none z-[110]'
+            : 'w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-4xl sm:rounded-3xl shadow-2xl my-0 sm:my-auto'
+        } ${isHighContrast ? 'bg-white text-black border-2 border-stone-950 font-medium' : 'bg-white text-stone-900 border border-amber-900/20'}`}
       >
         {/* Top Control Bar: Magnifier / Zoom tools & Fullscreen toggler */}
         <div
@@ -159,14 +282,43 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </button>
           </div>
 
-          {/* Right controls: Share/Copy Link, Fullscreen toggle & Close */}
-          <div className="flex items-center gap-2">
+          {/* Right controls: Language Switcher, Share/Copy Link, Fullscreen toggle & Close */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Quick Language Toggle [ ҚАЗ | РУС ] */}
+            <div className="flex items-center rounded-lg bg-emerald-900/90 p-0.5 border border-emerald-700/60 shadow-xs">
+              <button
+                type="button"
+                id="modal-lang-kz"
+                onClick={() => handleLangSwitch('kz')}
+                className={`px-2 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  isKz
+                    ? 'bg-amber-400 text-stone-950 shadow-xs'
+                    : 'text-emerald-200 hover:text-white'
+                }`}
+                title="Қазақ тіліне аудару және оқу"
+              >
+                ҚАЗ
+              </button>
+              <button
+                type="button"
+                id="modal-lang-ru"
+                onClick={() => handleLangSwitch('ru')}
+                className={`px-2 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  !isKz
+                    ? 'bg-amber-400 text-stone-950 shadow-xs'
+                    : 'text-emerald-200 hover:text-white'
+                }`}
+                title="Читать описание на русском языке"
+              >
+                РУС
+              </button>
+            </div>
+
             <button
               id="copy-product-link-btn"
               onClick={async () => {
-                const url = getProductDirectUrl(product.id);
-                const ok = await copyTextToClipboard(url);
-                if (ok) {
+                const res = await shareOrCopyProduct(product, currentLang);
+                if (res.success) {
                   setIsLinkCopied(true);
                   setTimeout(() => setIsLinkCopied(false), 2500);
                 }
@@ -176,17 +328,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   ? 'bg-emerald-600 text-white'
                   : 'bg-emerald-900 hover:bg-emerald-800 text-amber-300'
               }`}
-              title="Скопировать прямую ссылку на товар для отправки клиенту в WhatsApp"
+              title="Скопировать прямую ссылку на товар для отправки клиенту в WhatsApp или сторис"
             >
               {isLinkCopied ? (
                 <>
                   <Check className="w-3.5 h-3.5" />
-                  <span>{lang === 'kz' ? 'Көшірілді!' : 'Ссылка скопирована!'}</span>
+                  <span>{isKz ? 'Көшірілді!' : 'Ссылка скопирована!'}</span>
                 </>
               ) : (
                 <>
                   <Share2 className="w-3.5 h-3.5" />
-                  <span>{lang === 'kz' ? 'Сілтеме' : 'Ссылка'}</span>
+                  <span>{isKz ? 'Сілтеме' : 'Ссылка'}</span>
                 </>
               )}
             </button>
@@ -200,12 +352,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               {isFullscreen ? (
                 <>
                   <Minimize2 className="w-4 h-4" />
-                  <span className="hidden sm:inline">{lang === 'kz' ? 'Шығу' : 'Обычный вид'}</span>
+                  <span className="hidden sm:inline">{isKz ? 'Шығу' : 'Обычный вид'}</span>
                 </>
               ) : (
                 <>
                   <Maximize2 className="w-4 h-4" />
-                  <span className="hidden sm:inline">{lang === 'kz' ? 'Толық экран' : 'На весь экран'}</span>
+                  <span className="hidden sm:inline">{isKz ? 'Толық экран' : 'На весь экран'}</span>
                 </>
               )}
             </button>
@@ -222,7 +374,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div id="modal-scroll-body" className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        <div
+          ref={scrollBodyRef}
+          id="modal-scroll-body"
+          className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 lg:p-8 space-y-6"
+        >
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 lg:gap-8">
             {/* Left Column: Images & Badges (9:16 vertical ratio) */}
             <div className="md:col-span-5 space-y-4">
@@ -237,9 +393,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 {/* Stock badge */}
                 <div className="absolute top-3 left-3 flex flex-col gap-1.5">
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-700 text-white shadow-xs">
-                    100% Халяль
-                  </span>
+                  {!product.inStock ? (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-600 text-white shadow-xs flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {lang === 'kz' ? 'Қолда жоқ • Жақында' : 'Нет в наличии • Скоро будет'}
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-700 text-white shadow-xs">
+                      100% Халяль
+                    </span>
+                  )}
                   {product.isHit && (
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-stone-950 shadow-xs">
                       Хит продаж
@@ -289,7 +452,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   <span>{config.city}, {config.boutiqueNumber}</span>
                 </div>
                 <p className="text-[11px] text-emerald-800">
-                  {config.address} • Ежедневно с 10:00 до 21:00
+                  {config.address} • {lang === 'kz' ? config.workingHoursKz : config.workingHoursRu}
                 </p>
               </div>
             </div>
@@ -330,13 +493,88 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       {formatPrice(product.oldPrice)}
                     </span>
                   )}
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                    {lang === 'kz' ? 'Қолда бар' : 'В наличии'}
-                  </span>
+                  {product.inStock ? (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      {isKz ? 'Бутик №24 • Қолда бар' : 'Бутик №24 • В наличии'}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" />
+                      {isKz ? 'Қолда жоқ • Жақында болады' : 'Нет в наличии • Скоро будет'}
+                    </span>
+                  )}
                 </div>
 
+                {/* In-Card Language Switcher Bar directly for reading description */}
+                <div className="mt-5 p-3 rounded-2xl bg-amber-50/80 border border-amber-200/90 flex items-center justify-between gap-3 flex-wrap shadow-2xs">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-amber-950 font-bold">
+                    <Globe className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>{isKz ? 'Сипаттама тілі:' : 'Язык описания товара:'}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      id="card-lang-kz"
+                      onClick={() => handleLangSwitch('kz')}
+                      className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        isKz
+                          ? 'bg-emerald-800 text-white shadow-sm ring-2 ring-emerald-600/30'
+                          : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200/90'
+                      }`}
+                      title="Қазақ тілінде оқу"
+                    >
+                      <span>🇰🇿 Қазақша</span>
+                    </button>
+                    <button
+                      type="button"
+                      id="card-lang-ru"
+                      onClick={() => handleLangSwitch('ru')}
+                      className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        !isKz
+                          ? 'bg-emerald-800 text-white shadow-sm ring-2 ring-emerald-600/30'
+                          : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200/90'
+                      }`}
+                      title="Читать на русском"
+                    >
+                      <span>🇷🇺 Русский</span>
+                    </button>
+
+                    {isKz && (
+                      <button
+                        type="button"
+                        id="card-retranslate-btn"
+                        onClick={() => runKazakhTranslation(true)}
+                        disabled={isTranslating}
+                        className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-100 hover:bg-amber-200 text-amber-950 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        title="Қазақ тіліне қайта аудару"
+                      >
+                        <RotateCw className={`w-3.5 h-3.5 text-amber-800 ${isTranslating ? 'animate-spin' : ''}`} />
+                        <span className="hidden sm:inline">{isTranslating ? 'Аударылуда...' : 'Қайта аудару'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Translation in-progress status pill */}
+                {isKz && isTranslating && (
+                  <div className="mt-2.5 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs sm:text-sm font-medium flex items-center gap-2.5 shadow-2xs animate-pulse">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-700 shrink-0" />
+                    <span>Қазақ тіліне аударылуда... (Сипаттамасы аударылып жатыр)</span>
+                  </div>
+                )}
+
+                {/* Translation ready badge */}
+                {isKz && !isTranslating && (
+                  <div className="mt-2 px-3 py-1 text-xs text-emerald-800 bg-emerald-50/90 rounded-lg border border-emerald-200 font-medium flex items-center gap-1.5 w-fit">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>Қазақша нұсқасы белсенді</span>
+                  </div>
+                )}
+
                 {/* Tabs Navigation */}
-                <div id="modal-tabs-nav" className="mt-6 flex border-b border-stone-200 overflow-x-auto gap-2">
+                <div id="modal-tabs-nav" className="mt-5 flex border-b border-stone-200 overflow-x-auto gap-2">
                   <button
                     id="tab-btn-desc"
                     onClick={() => setActiveTab('desc')}
@@ -346,7 +584,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         : 'border-transparent text-stone-500 hover:text-stone-800'
                     }`}
                   >
-                    {lang === 'kz' ? 'Сипаттама' : 'Описание'}
+                    {isKz ? 'Сипаттама' : 'Описание'}
                   </button>
 
                   {benefits && benefits.length > 0 && (
@@ -359,7 +597,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           : 'border-transparent text-stone-500 hover:text-stone-800'
                       }`}
                     >
-                      {lang === 'kz' ? 'Пайдасы' : 'Польза и свойства'}
+                      {isKz ? 'Пайдасы' : 'Польза и свойства'}
                     </button>
                   )}
 
@@ -373,7 +611,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           : 'border-transparent text-stone-500 hover:text-stone-800'
                       }`}
                     >
-                      {lang === 'kz' ? 'Қолдану тәсілі' : 'Как применять'}
+                      {isKz ? 'Қолдану тәсілі' : 'Как применять'}
                     </button>
                   )}
 
@@ -387,7 +625,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           : 'border-transparent text-stone-500 hover:text-stone-800'
                       }`}
                     >
-                      {lang === 'kz' ? 'Сипаттамалары' : 'Характеристики'}
+                      {isKz ? 'Сипаттамалары' : 'Характеристики'}
                     </button>
                   )}
                 </div>
@@ -403,6 +641,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 >
                   {activeTab === 'desc' && (
                     <div className="space-y-3">
+                      {isKz && isTranslating && (
+                        <div className="p-3 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-xs sm:text-sm font-semibold flex items-center gap-2.5 animate-pulse">
+                          <Loader2 className="w-4 h-4 animate-spin text-amber-800 shrink-0" />
+                          <span>Қазақ тіліне аударылуда... Бірнеше секунд күте тұрыңыз</span>
+                        </div>
+                      )}
                       <p className="text-stone-800 font-normal leading-relaxed whitespace-pre-line">
                         {description}
                       </p>
@@ -424,7 +668,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 font-bold text-emerald-950 text-sm mb-1">
                         <Clock className="w-4 h-4 text-emerald-700" />
-                        <span>{lang === 'kz' ? 'Нұсқаулық:' : 'Рекомендации по приему:'}</span>
+                        <span>{isKz ? 'Нұсқаулық:' : 'Рекомендации по приему:'}</span>
                       </div>
                       <p className="text-stone-800 leading-relaxed whitespace-pre-line">
                         {howToUse}
@@ -456,10 +700,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       </div>
                       <div>
                         <p className="font-bold text-emerald-900 text-xs sm:text-sm">
-                          {lang === 'kz' ? 'Өнім себетке жіберілді!' : 'Товар отправлен в корзину!'}
+                          {isKz ? 'Өнім себетке жіберілді!' : 'Товар отправлен в корзину!'}
                         </p>
                         <p className="text-[11px] text-emerald-700 font-normal">
-                          {lang === 'kz' ? 'Тапсырысты себеттен рәсімдеуге болады' : 'Вы можете перейти в корзину или продолжить выбор'}
+                          {isKz ? 'Тапсырысты себеттен рәсімдеуге болады' : 'Вы можете перейти в корзину или продолжить выбор'}
                         </p>
                       </div>
                     </div>
@@ -474,45 +718,108 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     href={`https://wa.me/${config.whatsappNumber}?text=${waDirectMessage}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all"
+                    className={`px-5 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all text-white ${
+                      product.inStock
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-emerald-700 hover:bg-emerald-800'
+                    }`}
                   >
                     <MessageCircle className="w-5 h-5" />
-                    <span>{lang === 'kz' ? 'WhatsApp арқылы тапсырыс' : 'Заказать в WhatsApp'}</span>
+                    <span>
+                      {product.inStock
+                        ? (isKz ? 'WhatsApp арқылы тапсырыс' : 'Заказать в WhatsApp')
+                        : (isKz ? 'Келуін WhatsApp-тан сұрау' : 'Узнать о поступлении')}
+                    </span>
                   </a>
 
-                  {/* 1-Click Fast Order */}
+                  {/* 1-Click Fast Order / Pre-order */}
                   <button
                     id="modal-quick-order-btn"
                     onClick={() => onQuickOrder(product)}
                     className="px-5 py-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-stone-950 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
                   >
                     <Zap className="w-5 h-5 text-stone-950" />
-                    <span>{lang === 'kz' ? '1 басу арқылы сатып алу' : 'Купить в 1 клик'}</span>
+                    <span>
+                      {product.inStock
+                        ? (isKz ? '1 басу арқылы сатып алу' : 'Купить в 1 клик')
+                        : (isKz ? 'Алдын ала тапсырыс беру' : 'Оформить предзаказ')}
+                    </span>
                   </button>
                 </div>
 
-                {/* Add to Cart full width button with dynamic status */}
-                <button
-                  id="modal-add-cart-btn"
-                  onClick={handleAddToCartClick}
-                  className={`w-full px-5 py-3.5 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md ${
-                    isAddedToCartFeedback
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-4 ring-emerald-500/20 scale-[1.01]'
-                      : 'bg-emerald-950 hover:bg-black text-white'
-                  }`}
-                >
-                  {isAddedToCartFeedback ? (
-                    <>
-                      <CheckCircle2 className="w-5 h-5 text-amber-300 animate-bounce" />
-                      <span>{lang === 'kz' ? '✓ Өнім себетке жіберілді!' : '✓ Товар отправлен в корзину!'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingBag className="w-5 h-5 text-amber-400" />
-                      <span>{lang === 'kz' ? 'Себетке қосу' : 'Добавить в корзину'}</span>
-                    </>
-                  )}
-                </button>
+                {/* Add to Cart button OR Out of Stock reservation info */}
+                {product.inStock ? (
+                  <button
+                    id="modal-add-cart-btn"
+                    onClick={handleAddToCartClick}
+                    className={`w-full px-5 py-3.5 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-md ${
+                      isAddedToCartFeedback
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-4 ring-emerald-500/20 scale-[1.01]'
+                        : 'bg-emerald-950 hover:bg-black text-white'
+                    }`}
+                  >
+                    {isAddedToCartFeedback ? (
+                      <>
+                        <CheckCircle2 className="w-5 h-5 text-amber-300 animate-bounce" />
+                        <span>{isKz ? '✓ Өнім себетке жіберілді!' : '✓ Товар отправлен в корзину!'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingBag className="w-5 h-5 text-amber-400" />
+                        <span>{isKz ? 'Себетке қосу' : 'Добавить в корзину'}</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="w-full p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-center">
+                    <p className="text-xs sm:text-sm font-bold text-rose-800 flex items-center justify-center gap-2">
+                      <Clock className="w-4 h-4 text-rose-600" />
+                      <span>{isKz ? 'Өнім уақытша бітті • Жақында түседі' : 'Товар временно закончился • Скоро будет'}</span>
+                    </p>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      {isKz ? 'Бутик №24-тен алдын ала брондау үшін түймелерді басыңыз' : 'Нажмите кнопку «Оформить предзаказ», чтобы забронировать к новому завозу'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Direct Share Link block for Stories & WhatsApp */}
+                <div className="pt-2">
+                  <button
+                    id="modal-share-product-btn"
+                    onClick={async () => {
+                      const res = await shareOrCopyProduct(product, currentLang);
+                      if (res.success) {
+                        setIsLinkCopied(true);
+                        setTimeout(() => setIsLinkCopied(false), 3000);
+                      }
+                    }}
+                    className={`w-full py-2.5 px-4 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      isLinkCopied
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
+                        : 'bg-stone-50 hover:bg-stone-100 border-stone-200/90 text-stone-700 hover:text-stone-900'
+                    }`}
+                    title="Скопировать ссылку для вставки в Instagram Сторис или отправки клиенту"
+                  >
+                    {isLinkCopied ? (
+                      <>
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        <span className="font-bold text-emerald-700">
+                          {isKz ? '✓ Сілтеме көшірілді! Сторис немесе WhatsApp-қа салыңыз' : '✓ Ссылка скопирована! Готова для сторис и WhatsApp'}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Share2 className="w-4 h-4 text-amber-600" />
+                        <span>
+                          {isKz ? 'Өнім сілтемесін көшіру (Сторис / WhatsApp)' : 'Скопировать ссылку на товар (для сторис и WhatsApp)'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[11px] text-center text-stone-400 mt-1">
+                    {isKz ? 'Клиент сілтемені ашқанда тура осы тауарға бірден өтеді' : 'Клиент перейдет ровно на эту карточку товара без лишнего поиска'}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -520,4 +827,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       </div>
     </div>
   );
+
+  return createPortal(modalElement, document.body);
 };

@@ -2,66 +2,76 @@
   "entities": {
     "Product": {
       "title": "Product",
-      "description": "Catalog item in Muslim Shop",
+      "description": "Product in the boutique catalog",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
         "titleRu": { "type": "string" },
         "titleKz": { "type": "string" },
         "price": { "type": "number" },
-        "oldPrice": { "type": "number" },
         "categoryId": { "type": "string" },
-        "descriptionRu": { "type": "string" },
-        "descriptionKz": { "type": "string" },
-        "specsRu": { "type": "string" },
-        "specsKz": { "type": "string" },
-        "inStock": { "type": "boolean" },
-        "sku": { "type": "string" },
-        "isHit": { "type": "boolean" },
-        "isNew": { "type": "boolean" },
-        "isSale": { "type": "boolean" },
-        "images": { "type": "array", "items": { "type": "string" } },
-        "createdAt": { "type": "string" }
+        "inStock": { "type": "boolean" }
       },
       "required": ["titleRu", "price", "categoryId"]
     },
     "Category": {
       "title": "Category",
-      "description": "Product category",
+      "description": "Store categories",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
         "nameRu": { "type": "string" },
         "nameKz": { "type": "string" },
         "icon": { "type": "string" },
         "order": { "type": "number" }
       },
-      "required": ["nameRu", "order"]
+      "required": ["nameRu"]
     },
-    "Settings": {
-      "title": "Settings",
-      "description": "Store configuration and contacts",
+    "DailyAnalytics": {
+      "title": "DailyAnalytics",
+      "description": "Daily visit and traffic aggregation",
       "type": "object",
       "properties": {
-        "storeName": { "type": "string" },
-        "city": { "type": "string" },
-        "boutiqueNumber": { "type": "string" },
-        "address": { "type": "string" },
-        "whatsappNumber": { "type": "string" },
-        "instagram": { "type": "string" },
-        "adminPin": { "type": "string" }
-      }
+        "date": { "type": "string" },
+        "totalVisits": { "type": "number" },
+        "uniqueVisitors": { "type": "number" },
+        "pageViews": { "type": "number" },
+        "mobileVisits": { "type": "number" },
+        "desktopVisits": { "type": "number" },
+        "ruVisits": { "type": "number" },
+        "kzVisits": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["date", "totalVisits", "uniqueVisitors"]
     },
-    "Order": {
-      "title": "Order",
-      "description": "Customer order",
+    "VisitLog": {
+      "title": "VisitLog",
+      "description": "Individual client visit log session",
       "type": "object",
       "properties": {
-        "customerName": { "type": "string" },
-        "customerPhone": { "type": "string" },
-        "totalAmount": { "type": "number" },
-        "createdAt": { "type": "string" }
-      }
+        "visitorId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "device": { "type": "string" },
+        "lang": { "type": "string" },
+        "page": { "type": "string" }
+      },
+      "required": ["visitorId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Product documents"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Category documents"
+    },
+    "/analytics_daily/{dateId}": {
+      "schema": "DailyAnalytics",
+      "description": "Aggregated daily traffic statistics"
+    },
+    "/analytics_visits/{visitId}": {
+      "schema": "VisitLog",
+      "description": "Recent client visit records"
     }
   }
 }

@@ -1,16 +1,16 @@
 import React from 'react';
-import { MapPin, Phone, MessageCircle, Clock, Instagram, ShieldCheck, Lock } from 'lucide-react';
+import { MapPin, Phone, MessageCircle, Clock, Instagram, ShieldCheck } from 'lucide-react';
 import { Language, StoreConfig } from '../types';
 
 interface FooterProps {
   config: StoreConfig;
   lang: Language;
-  onOpenAdmin: () => void;
+  onOpenAdmin?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ config, lang, onOpenAdmin }) => {
+export const Footer: React.FC<FooterProps> = ({ config, lang }) => {
   return (
-    <footer id="main-footer" className="bg-emerald-950 text-stone-300 pt-12 pb-8 border-t border-amber-500/20">
+    <footer id="main-footer" className="w-full max-w-full overflow-x-hidden bg-emerald-950 text-stone-300 pt-12 pb-8 border-t border-amber-500/20">
       <div className="max-w-7xl mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10">
           {/* Col 1: Brand & Tagline */}
@@ -123,18 +123,10 @@ export const Footer: React.FC<FooterProps> = ({ config, lang, onOpenAdmin }) => 
           </div>
         </div>
 
-        {/* Bottom Bar: Copyright & Admin link */}
+        {/* Bottom Bar: Copyright */}
         <div className="pt-6 border-t border-emerald-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
           <p>© {new Date().getFullYear()} {config.storeName} — г. Атырау, Бутик №24. Все права защищены.</p>
-
-          <button
-            onClick={onOpenAdmin}
-            className="flex items-center gap-1.5 text-stone-500 hover:text-amber-400 transition-colors cursor-pointer"
-            title="Вход для владельца бутика"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Панель управления (Бутик №24)</span>
-          </button>
+          <p className="text-[11px] text-stone-600">Халяль продукция • Доставка по всему Казахстану</p>
         </div>
       </div>
     </footer>

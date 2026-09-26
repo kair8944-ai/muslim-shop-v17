@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Heart, ShoppingBag, Trash2 } from 'lucide-react';
 import { Language, Product } from '../types';
 import { formatPrice } from '../utils/formatters';
@@ -20,10 +21,25 @@ export const FavoritesDrawer: React.FC<FavoritesDrawerProps> = ({
   onOpenDetail,
   onClose,
 }) => {
-  return (
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
+  return createPortal(
     <div
       id="favorites-drawer-backdrop"
-      className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex justify-end"
+      className="fixed inset-0 z-[100] bg-stone-950/70 backdrop-blur-xs flex justify-end overflow-hidden"
       onClick={onClose}
     >
       <div
@@ -115,6 +131,7 @@ export const FavoritesDrawer: React.FC<FavoritesDrawerProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

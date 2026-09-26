@@ -2,10 +2,10 @@ import { Category, Product, StoreConfig } from '../types';
 
 export const INITIAL_CONFIG: StoreConfig = {
   storeName: 'MUSLIM SHOP',
-  taglineRu: 'Красота. Здоровье. Вера.',
-  taglineKz: 'Сұлулық. Денсаулық. Сенім.',
-  subtitleRu: 'Премиальные товары для здоровья, красоты и повседневной жизни в Атырау.',
-  subtitleKz: 'Атыраудағы денсаулық, сұлулық және күнделікті өмірге арналған премиум өнімдер.',
+  taglineRu: 'Красота, здоровье и халяль-товары в Атырау',
+  taglineKz: 'Атыраудағы сұлулық, денсаулық және халал өнімдер',
+  subtitleRu: 'Витамины iHerb, БАДы, товары для мужского и женского здоровья, мед, хиджама и мусульманские ароматы.',
+  subtitleKz: 'iHerb дәрумендері, ББҚ, ерлер мен әйелдер денсаулығына арналған өнімдер, бал, хиджама және мұсылман хош иістері.',
   city: 'Атырау',
   boutiqueNumber: 'Бутик №24',
   address: 'г. Атырау, ТД «Дина Байзар», бутик №24',
@@ -24,17 +24,18 @@ export const INITIAL_CONFIG: StoreConfig = {
 
 export const CATEGORIES: Category[] = [
   { id: 'cat-all', nameRu: 'Все товары', nameKz: 'Барлық өнімдер', icon: '✨', order: 0 },
-  { id: 'cat-hits', nameRu: 'Хиты', nameKz: 'Хиттер', icon: '🔥', order: 1 },
-  { id: 'cat-health', nameRu: 'Здоровье', nameKz: 'Денсаулық', icon: '❤️', order: 2 },
-  { id: 'cat-iherb', nameRu: 'iHerb Витамины', nameKz: 'iHerb Витаминдер', icon: '💊', order: 3 },
-  { id: 'cat-beauty', nameRu: 'Красота', nameKz: 'Сұлулық', icon: '✨', order: 4 },
-  { id: 'cat-men', nameRu: 'Мужское здоровье', nameKz: 'Ерлер денсаулығы', icon: '💪', order: 5 },
-  { id: 'cat-women', nameRu: 'Женское здоровье', nameKz: 'Әйелдер денсаулығы', icon: '🌸', order: 6 },
-  { id: 'cat-diet', nameRu: 'Похудение', nameKz: 'Арықтау', icon: '⚖️', order: 7 },
-  { id: 'cat-muslim', nameRu: 'Для мусульман', nameKz: 'Мұсылмандарға', icon: '🕌', order: 8 },
-  { id: 'cat-natural', nameRu: 'Натуральные продукты', nameKz: 'Табиғи өнімдер', icon: '🌿', order: 9 },
-  { id: 'cat-new', nameRu: 'Новинки', nameKz: 'Жаңалықтар', icon: '🌟', order: 10 },
-  { id: 'cat-misc', nameRu: 'Разное', nameKz: 'Басқа', icon: '📦', order: 11 },
+  { id: 'cat-iherb', nameRu: 'Витамины iHerb', nameKz: 'iHerb Витаминдер', icon: '💊', order: 1 },
+  { id: 'cat-health', nameRu: 'БАДы и Здоровье', nameKz: 'ББҚ және Денсаулық', icon: '🌿', order: 2 },
+  { id: 'cat-men', nameRu: 'Мужское здоровье', nameKz: 'Ерлер денсаулығы', icon: '💪', order: 3 },
+  { id: 'cat-women', nameRu: 'Женское здоровье', nameKz: 'Әйелдер денсаулығы', icon: '🌸', order: 4 },
+  { id: 'cat-honey', nameRu: 'Натуральный мед', nameKz: 'Табиғи бал', icon: '🍯', order: 5 },
+  { id: 'cat-hijama', nameRu: 'Хиджама', nameKz: 'Хиджама', icon: '🩸', order: 6 },
+  { id: 'cat-muslim', nameRu: 'Мусульманские ароматы', nameKz: 'Мұсылман хош иістері', icon: '🕌', order: 7 },
+  { id: 'cat-beauty', nameRu: 'Красота и уход', nameKz: 'Сұлулық және күтім', icon: '✨', order: 8 },
+  { id: 'cat-diet', nameRu: 'Похудение и детокс', nameKz: 'Арықтау және детокс', icon: '⚖️', order: 9 },
+  { id: 'cat-hits', nameRu: 'Хиты продаж', nameKz: 'Танымал хиттер', icon: '🔥', order: 10 },
+  { id: 'cat-new', nameRu: 'Новинки', nameKz: 'Жаңа өнімдер', icon: '🌟', order: 11 },
+  { id: 'cat-misc', nameRu: 'Разное', nameKz: 'Басқа', icon: '📦', order: 12 },
 ];
 
 // Demo products removed; all real products are loaded directly from Firestore
