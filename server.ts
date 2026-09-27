@@ -198,11 +198,10 @@ async function refreshCatalogFromFirestore(): Promise<boolean> {
   }
 }
 
-// Trigger initial Firestore sync on server boot and every 3 minutes
-refreshCatalogFromFirestore();
-setInterval(() => {
+// Only refresh from Firestore if initial snapshot was empty (prevents exhausting daily free read quota)
+if (catalogCache.products.length === 0) {
   refreshCatalogFromFirestore();
-}, 3 * 60 * 1000);
+}
 
 // Lazy Gemini AI initialization
 let aiClient: GoogleGenAI | null = null;

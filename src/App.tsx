@@ -33,6 +33,12 @@ import {
   getProductById,
   fetchUniversalCatalog,
   isQuotaOrNetworkError,
+  recordLocalProductUpsert,
+  recordLocalProductDelete,
+  recordLocalCategoryUpsert,
+  recordLocalCategoryDelete,
+  recordLocalSettingsUpdate,
+  applyProductsDelta,
 } from './services/firestoreService';
 import { trackVisit, trackProductView } from './services/analyticsService';
 import {
@@ -105,9 +111,13 @@ export default function App() {
     }
   });
 
-  // Products state (loads from shared server / Firestore catalog)
-  const [products, setProducts] = useState<Product[]>([]);
+  // Products state (loads from shared server / Firestore catalog + local delta)
+  const [products, setProducts] = useState<Product[]>(() => {
+    const initialDeltaProds = applyProductsDelta([]);
+    return initialDeltaProds.length > 0 ? deduplicateProducts(initialDeltaProds) : [];
+  });
   const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
+  const [visibleLimit, setVisibleLimit] = useState<number>(24);
 
   // Language state
   const [lang, setLang] = useState<Language>(() => {
@@ -180,7 +190,8 @@ export default function App() {
     const unsubscribe = subscribeToProducts(
       (firestoreProducts) => {
         clearTimeout(fallbackTimer);
-        const deduped = deduplicateProducts(firestoreProducts);
+        const withDelta = applyProductsDelta(firestoreProducts);
+        const deduped = deduplicateProducts(withDelta);
         setProducts(deduped);
         setIsLoadingProducts(false);
       },
@@ -555,6 +566,19 @@ export default function App() {
     }
   };
 
+  // Progressive rendering: render first 24 cards immediately for instant paint, then mount the rest smoothly
+  useEffect(() => {
+    if (filteredProducts.length <= 24) {
+      setVisibleLimit(filteredProducts.length || 24);
+      return;
+    }
+    setVisibleLimit(24);
+    const timer = setTimeout(() => {
+      setVisibleLimit(filteredProducts.length);
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [filteredProducts.length, selectedCategoryId, searchQuery, sortBy]);
+
   return (
     <div
       id="app-root"
@@ -722,7 +746,7 @@ export default function App() {
             id="products-grid"
             className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3 sm:gap-6 mt-6"
           >
-            {filteredProducts.map((product) => (
+            {filteredProducts.slice(0, visibleLimit).map((product) => (
               <ProductCard
                 key={product.id}
                 product={product}
@@ -868,47 +892,39 @@ export default function App() {
           categories={categories}
           lang={lang}
           onUpdateConfig={(newCfg) => {
+            recordLocalSettingsUpdate(newCfg);
             setConfig(newCfg);
             try {
               localStorage.setItem('muslim_shop_config', JSON.stringify(newCfg));
             } catch {}
           }}
           onUpdateProduct={(updated) => {
-            setProducts((prev) => {
-              const next = deduplicateProducts(prev.map((p) => (p.id === updated.id ? updated : p)));
-              try {
-                localStorage.setItem('muslim_shop_products', JSON.stringify(next));
-              } catch {}
-              return next;
-            });
+            recordLocalProductUpsert(updated);
+            setProducts((prev) =>
+              deduplicateProducts(prev.map((p) => (p.id === updated.id ? updated : p)))
+            );
           }}
           onAddProduct={(newProd) => {
+            recordLocalProductUpsert(newProd);
             setProducts((prev) => {
               const alreadyExists = prev.some(
                 (p) => p.id === newProd.id || (p.sku && newProd.sku && p.sku === newProd.sku)
               );
-              if (alreadyExists) return prev;
-              const next = deduplicateProducts([newProd, ...prev]);
-              try {
-                localStorage.setItem('muslim_shop_products', JSON.stringify(next));
-              } catch {}
-              return next;
+              if (alreadyExists) {
+                return deduplicateProducts(prev.map((p) => (p.id === newProd.id ? newProd : p)));
+              }
+              return deduplicateProducts([newProd, ...prev]);
             });
             showToast(lang === 'kz' ? 'Өнім сәтті қосылды!' : 'Товар успешно добавлен в каталог!');
           }}
           onDeleteProduct={(deletedId) => {
-            setProducts((prev) => {
-              const next = prev.filter((p) => p.id !== deletedId);
-              try {
-                localStorage.setItem('muslim_shop_products', JSON.stringify(next));
-              } catch {}
-              return next;
-            });
+            recordLocalProductDelete(deletedId);
+            setProducts((prev) => prev.filter((p) => p.id !== deletedId));
             showToast(lang === 'kz' ? 'Өнім жойылды' : 'Товар удален из каталога');
           }}
           onPreviewProduct={handleOpenDetail}
           onAddCategory={(newCat) => {
-            // Remove from deleted list if present
+            recordLocalCategoryUpsert(newCat);
             try {
               const currentDeleted = getDeletedCategoryIds().filter((id) => id !== newCat.id);
               localStorage.setItem('muslim_shop_deleted_categories', JSON.stringify(currentDeleted));
@@ -925,6 +941,7 @@ export default function App() {
             showToast(lang === 'kz' ? 'Каталог қосылды!' : 'Каталог успешно добавлен!');
           }}
           onUpdateCategory={(updatedCat) => {
+            recordLocalCategoryUpsert(updatedCat);
             setCategories((prev) => {
               const updated = prev.map((c) => (c.id === updatedCat.id ? updatedCat : c));
               try {
@@ -935,6 +952,7 @@ export default function App() {
             showToast(lang === 'kz' ? 'Каталог жаңартылды!' : 'Каталог успешно обновлен!');
           }}
           onDeleteCategory={(deletedCatId) => {
+            recordLocalCategoryDelete(deletedCatId);
             addDeletedCategoryId(deletedCatId);
             setCategories((prev) => {
               const updated = prev.filter((c) => c.id !== deletedCatId);

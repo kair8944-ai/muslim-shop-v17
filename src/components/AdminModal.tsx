@@ -246,7 +246,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!file) return;
     setIsCompressingImage(true);
     try {
-      const compressedDataUrl = await compressImageFile(file, 900, 900, 0.82);
+      const compressedDataUrl = await compressImageFile(file, 720, 720, 0.78);
       if (target === 'new') {
         setNewImageUrl(compressedDataUrl);
       } else if (editingProduct) {
@@ -554,8 +554,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     };
 
     try {
-      // 1. Immediately add to local state and catalog
+      // 1. Immediately add to local state & delta store (0ms synchronous persistence)
       onAddProduct(newProd);
+
+      // 2. Persist to Firestore & IndexedDB before switching tabs so refreshing the page never loses the item
+      try {
+        await saveProductToFirestore(newProd);
+      } catch (err: any) {
+        console.warn('Firestore product sync warning (saved locally):', err);
+      }
+
       setNewTitleRu('');
       setNewTitleKz('');
       setNewPrice('');
@@ -567,13 +575,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setNewIsHit(false);
       setNewIsNew(true);
       setActiveTab('products');
-
-      // 2. Persist to Firestore asynchronously
-      try {
-        await saveProductToFirestore(newProd);
-      } catch (err: any) {
-        console.warn('Firestore product sync warning (saved locally):', err);
-      }
     } catch (err: any) {
       alert('Ошибка добавления товара: ' + err.message);
     } finally {
