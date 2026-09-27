@@ -19,10 +19,15 @@ export const SETTINGS_COLLECTION = 'settings';
 export const ORDERS_COLLECTION = 'orders';
 export const CATALOG_DELTA_DOC_ID = 'catalog_delta';
 
+export const PRODUCTS_CACHE_STORAGE_KEY = 'muslim_shop_products_cache';
+const LEGACY_PRODUCTS_CACHE_KEY = 'muslim_shop_products';
 const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v2';
 const IDB_NAME = 'muslim_shop_idb_v2';
 const IDB_VERSION = 1;
 const IDB_STORE_KV = 'kv_store';
+
+// In-memory high-res image map to preserve large base64 images when compacting localStorage
+const inMemoryProductImages = new Map<string, string[]>();
 
 /**
  * Normalizes a Firestore product document into a typed Product object
@@ -311,19 +316,110 @@ export function applyProductsDelta(baseProducts: Product[], customDelta?: Catalo
 
   for (const p of baseProducts) {
     if (p && p.id && !deletedSet.has(p.id)) {
-      map.set(p.id, normalizeProduct(p.id, p));
+      const normalized = normalizeProduct(p.id, p);
+      if (
+        normalized.images &&
+        normalized.images.length > 0 &&
+        normalized.images[0] &&
+        !normalized.images[0].includes('photo-1584308666744-24d5c474f2ae')
+      ) {
+        inMemoryProductImages.set(normalized.id, normalized.images);
+      } else if (inMemoryProductImages.has(normalized.id)) {
+        normalized.images = inMemoryProductImages.get(normalized.id)!;
+      }
+      map.set(normalized.id, normalized);
     }
   }
 
   if (delta.upsertedProducts) {
     for (const [id, prod] of Object.entries(delta.upsertedProducts)) {
       if (prod && !deletedSet.has(id)) {
-        map.set(id, normalizeProduct(id, prod));
+        const normalized = normalizeProduct(id, prod);
+        if (normalized.images && normalized.images.length > 0) {
+          inMemoryProductImages.set(normalized.id, normalized.images);
+        }
+        map.set(id, normalized);
       }
     }
   }
 
   return Array.from(map.values());
+}
+
+/**
+ * Synchronously reads the cached product list from localStorage and merges any local delta
+ * so users see products immediately (0ms) on page load or slow networks.
+ */
+export function getCachedProductsFromLocalStorage(): Product[] {
+  try {
+    const raw =
+      localStorage.getItem(PRODUCTS_CACHE_STORAGE_KEY) ||
+      localStorage.getItem(LEGACY_PRODUCTS_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed
+          .filter((p) => p && p.id)
+          .map((p) => {
+            const norm = normalizeProduct(p.id, p);
+            if (inMemoryProductImages.has(norm.id)) {
+              norm.images = inMemoryProductImages.get(norm.id)!;
+            }
+            return norm;
+          });
+        return applyProductsDelta(normalized);
+      }
+    }
+  } catch {
+    // Ignore localStorage parse errors
+  }
+  return applyProductsDelta([]);
+}
+
+/**
+ * Persists the full product list into localStorage cache safely without hitting 5MB QuotaExceededError.
+ * Preserves all metadata and compact/external URLs in localStorage while keeping large base64 images in IndexedDB & memory.
+ */
+export function saveProductsToLocalStorageCache(products: Product[]): void {
+  if (!Array.isArray(products) || products.length === 0) return;
+  try {
+    const delta = getLocalCatalogDelta();
+    const compactList = products.map((p) => {
+      if (p.images && p.images.length > 0) {
+        inMemoryProductImages.set(p.id, p.images);
+      }
+      const isUpserted = Boolean(delta.upsertedProducts && delta.upsertedProducts[p.id]);
+      const safeImages = (p.images || []).map((img) => {
+        if (!img || typeof img !== 'string') return img;
+        // Keep full image in localStorage for newly added/edited items or URLs/compact images (<35KB)
+        if (isUpserted || !img.startsWith('data:') || img.length <= 35000) {
+          return img;
+        }
+        return 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80';
+      });
+      return {
+        ...p,
+        images: safeImages,
+      };
+    });
+
+    try {
+      localStorage.setItem(PRODUCTS_CACHE_STORAGE_KEY, JSON.stringify(compactList));
+    } catch {
+      // Fallback: strip all data: URIs if localStorage is near capacity
+      const ultraCompact = products.map((p) => ({
+        ...p,
+        images: (p.images || []).map((img) =>
+          img && img.startsWith('data:')
+            ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80'
+            : img
+        ),
+      }));
+      localStorage.setItem(PRODUCTS_CACHE_STORAGE_KEY, JSON.stringify(ultraCompact));
+    }
+  } catch {
+    // Ignore storage quota warnings
+  }
 }
 
 /**
@@ -484,6 +580,93 @@ function isStaticGitHubPagesHost(): boolean {
 }
 
 /**
+ * Fetches fresh catalog payload from server API (/api/catalog) or static snapshot (./catalog-snapshot.json)
+ * and updates IndexedDB + localStorage caches.
+ */
+async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
+  // 1. If not on static GitHub Pages, try Server API (/api/catalog)
+  if (!isStaticGitHubPagesHost()) {
+    try {
+      const res = await fetch('/api/catalog', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data && Array.isArray(data.products) && data.products.length > 0) {
+            const basePayload: SharedCatalogPayload = {
+              products: data.products.map((p: any) => normalizeProduct(p.id, p)),
+              categories: Array.isArray(data.categories)
+                ? data.categories
+                    .map((c: any) => normalizeCategory(c.id, c))
+                    .sort((a: Category, b: Category) => a.order - b.order)
+                : [],
+              settings: data.settings || {},
+            };
+            lastResolvedCatalog = basePayload;
+            lastResolvedAt = Date.now();
+            const mergedProducts = applyProductsDelta(basePayload.products);
+            saveProductsToLocalStorageCache(mergedProducts);
+            idbSet('base_catalog_v2', basePayload).catch(() => {});
+            return {
+              products: mergedProducts,
+              categories: applyCategoriesDelta(basePayload.categories),
+              settings: { ...basePayload.settings, ...(getLocalCatalogDelta().settings || {}) },
+            };
+          }
+        }
+      }
+    } catch {
+      // Proceed to static snapshot
+    }
+  }
+
+  // 2. Load Static Snapshot (./catalog-snapshot.json) with browser/CDN HTTP cache enabled for fast loading
+  try {
+    const baseUrl =
+      typeof import.meta !== 'undefined' && (import.meta as any).env?.BASE_URL
+        ? (import.meta as any).env.BASE_URL
+        : './';
+    const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+    const snapRes = await fetch(`${cleanBase}catalog-snapshot.json`, {
+      method: 'GET',
+      cache: 'default',
+    });
+    if (snapRes.ok) {
+      const data = await snapRes.json();
+      if (data && Array.isArray(data.products) && data.products.length > 0) {
+        const basePayload: SharedCatalogPayload = {
+          products: data.products.map((p: any) => normalizeProduct(p.id, p)),
+          categories: Array.isArray(data.categories)
+            ? data.categories
+                .map((c: any) => normalizeCategory(c.id, c))
+                .sort((a: Category, b: Category) => a.order - b.order)
+            : [],
+          settings: data.settings || {},
+        };
+        lastResolvedCatalog = basePayload;
+        lastResolvedAt = Date.now();
+        const mergedProducts = applyProductsDelta(basePayload.products);
+        saveProductsToLocalStorageCache(mergedProducts);
+        idbSet('base_catalog_v2', basePayload).catch(() => {});
+        return {
+          products: mergedProducts,
+          categories: applyCategoriesDelta(basePayload.categories),
+          settings: { ...basePayload.settings, ...(getLocalCatalogDelta().settings || {}) },
+        };
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  return null;
+}
+
+/**
  * Loads the base catalog at maximum speed:
  * 1. Instant IndexedDB cache (~20ms on repeat visits/refreshes!)
  * 2. Static CDN-cached `./catalog-snapshot.json` (on GitHub Pages / muslimshop.kz) or `/api/catalog` (on server)
@@ -491,8 +674,10 @@ function isStaticGitHubPagesHost(): boolean {
  */
 export async function fetchUniversalCatalog(): Promise<SharedCatalogPayload | null> {
   if (lastResolvedCatalog && Date.now() - lastResolvedAt < 15000) {
+    const mergedProducts = applyProductsDelta(lastResolvedCatalog.products);
+    saveProductsToLocalStorageCache(mergedProducts);
     return {
-      products: applyProductsDelta(lastResolvedCatalog.products),
+      products: mergedProducts,
       categories: applyCategoriesDelta(lastResolvedCatalog.categories),
       settings: { ...lastResolvedCatalog.settings, ...(getLocalCatalogDelta().settings || {}) },
     };
@@ -508,94 +693,28 @@ export async function fetchUniversalCatalog(): Promise<SharedCatalogPayload | nu
       if (cached && Array.isArray(cached.products) && cached.products.length > 0) {
         lastResolvedCatalog = cached;
         lastResolvedAt = Date.now();
+        const mergedProducts = applyProductsDelta(cached.products);
+        saveProductsToLocalStorageCache(mergedProducts);
         return {
-          products: applyProductsDelta(cached.products),
+          products: mergedProducts,
           categories: applyCategoriesDelta(cached.categories || []),
           settings: { ...(cached.settings || {}), ...(getLocalCatalogDelta().settings || {}) },
         };
       }
     } catch {}
 
-    // 2. If not on static GitHub Pages, try Server API (/api/catalog)
-    if (!isStaticGitHubPagesHost()) {
-      try {
-        const res = await fetch('/api/catalog', {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-        });
-        if (res.ok) {
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const data = await res.json();
-            if (data && Array.isArray(data.products) && data.products.length > 0) {
-              const basePayload: SharedCatalogPayload = {
-                products: data.products.map((p: any) => normalizeProduct(p.id, p)),
-                categories: Array.isArray(data.categories)
-                  ? data.categories
-                      .map((c: any) => normalizeCategory(c.id, c))
-                      .sort((a: Category, b: Category) => a.order - b.order)
-                  : [],
-                settings: data.settings || {},
-              };
-              lastResolvedCatalog = basePayload;
-              lastResolvedAt = Date.now();
-              idbSet('base_catalog_v2', basePayload).catch(() => {});
-              return {
-                products: applyProductsDelta(basePayload.products),
-                categories: applyCategoriesDelta(basePayload.categories),
-                settings: { ...basePayload.settings, ...(getLocalCatalogDelta().settings || {}) },
-              };
-            }
-          }
-        }
-      } catch {
-        // Proceed to static snapshot
-      }
+    // 2. Fetch from Server API or Static Snapshot
+    const netCatalog = await fetchNetworkCatalog();
+    if (netCatalog) {
+      return netCatalog;
     }
 
-    // 3. Load Static Snapshot (./catalog-snapshot.json) with browser/CDN HTTP cache enabled for fast loading
-    try {
-      const baseUrl =
-        typeof import.meta !== 'undefined' && (import.meta as any).env?.BASE_URL
-          ? (import.meta as any).env.BASE_URL
-          : './';
-      const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-      const snapRes = await fetch(`${cleanBase}catalog-snapshot.json`, {
-        method: 'GET',
-        cache: 'default',
-      });
-      if (snapRes.ok) {
-        const data = await snapRes.json();
-        if (data && Array.isArray(data.products) && data.products.length > 0) {
-          const basePayload: SharedCatalogPayload = {
-            products: data.products.map((p: any) => normalizeProduct(p.id, p)),
-            categories: Array.isArray(data.categories)
-              ? data.categories
-                  .map((c: any) => normalizeCategory(c.id, c))
-                  .sort((a: Category, b: Category) => a.order - b.order)
-              : [],
-            settings: data.settings || {},
-          };
-          lastResolvedCatalog = basePayload;
-          lastResolvedAt = Date.now();
-          idbSet('base_catalog_v2', basePayload).catch(() => {});
-          return {
-            products: applyProductsDelta(basePayload.products),
-            categories: applyCategoriesDelta(basePayload.categories),
-            settings: { ...basePayload.settings, ...(getLocalCatalogDelta().settings || {}) },
-          };
-        }
-      }
-    } catch {
-      // Ignore
-    }
-
-    // 4. Even if offline and only local delta exists, return local delta products
-    const localDelta = getLocalCatalogDelta();
-    const deltaProducts = Object.values(localDelta.upsertedProducts);
-    if (deltaProducts.length > 0) {
+    // 3. Even if offline and only local cache / delta exists, return cached products
+    const localCachedProducts = getCachedProductsFromLocalStorage();
+    if (localCachedProducts.length > 0) {
+      const localDelta = getLocalCatalogDelta();
       return {
-        products: deltaProducts,
+        products: localCachedProducts,
         categories: Object.values(localDelta.upsertedCategories),
         settings: localDelta.settings || {},
       };
@@ -616,13 +735,20 @@ export async function fetchUniversalCatalog(): Promise<SharedCatalogPayload | nu
  */
 async function syncServerCatalog(body: Record<string, any>): Promise<void> {
   if (lastResolvedCatalog) {
+    const mergedProducts = applyProductsDelta(lastResolvedCatalog.products);
     const updatedBase: SharedCatalogPayload = {
-      products: applyProductsDelta(lastResolvedCatalog.products),
+      products: mergedProducts,
       categories: applyCategoriesDelta(lastResolvedCatalog.categories),
       settings: { ...lastResolvedCatalog.settings, ...(getLocalCatalogDelta().settings || {}) },
     };
     lastResolvedCatalog = updatedBase;
+    saveProductsToLocalStorageCache(mergedProducts);
     idbSet('base_catalog_v2', updatedBase).catch(() => {});
+  } else {
+    const cached = getCachedProductsFromLocalStorage();
+    if (cached.length > 0) {
+      saveProductsToLocalStorageCache(cached);
+    }
   }
   if (isStaticGitHubPagesHost()) return;
   try {
@@ -637,9 +763,12 @@ async function syncServerCatalog(body: Record<string, any>): Promise<void> {
 }
 
 /**
- * Real-time subscription to products with:
- * - Instant IndexedDB / Snapshot load (~20-300ms)
- * - Guaranteed persistence of newly added/edited/deleted products via Local + Cloud Delta (1 read unit!)
+ * Cache-first real-time subscription to products:
+ * 1. Immediately returns the cached product list from `localStorage` (0ms synchronous load)
+ *    so users see content instantly even on slower networks.
+ * 2. Simultaneously hydrates high-res images from IndexedDB / Universal Catalog and revalidates
+ *    against the server catalog so cross-browser changes (e.g. Chrome -> Yandex Browser) sync immediately.
+ * 3. Simultaneously listens for real-time Firestore updates (`settings/catalog_delta`) and updates `localStorage`.
  */
 export function subscribeToProducts(
   onSuccess: (products: Product[]) => void,
@@ -652,25 +781,40 @@ export function subscribeToProducts(
     if (isUnsubscribed) return;
     const merged = applyProductsDelta(currentBaseProducts);
     if (merged.length > 0) {
+      saveProductsToLocalStorageCache(merged);
       onSuccess(merged);
     }
   };
 
-  // 1. Immediately load base catalog from IndexedDB / Snapshot & merge any local delta
+  // 1. CACHE-FIRST (0ms): Immediately return cached product list from localStorage
+  const initialCachedProducts = getCachedProductsFromLocalStorage();
+  if (initialCachedProducts.length > 0) {
+    currentBaseProducts = initialCachedProducts;
+    onSuccess(initialCachedProducts);
+  }
+
+  // 2. Hydrate from IndexedDB / Snapshot & revalidate from network in background for cross-browser sync
   fetchUniversalCatalog()
-    .then((catalog) => {
+    .then(async (catalog) => {
       if (isUnsubscribed) return;
       if (catalog && catalog.products.length > 0) {
         currentBaseProducts = catalog.products;
         emitMerged();
       }
+      // Background network revalidation ensures another browser (e.g. Yandex Browser) always receives new items added in Chrome
+      const freshNet = await fetchNetworkCatalog();
+      if (!isUnsubscribed && freshNet && freshNet.products.length > 0) {
+        currentBaseProducts = freshNet.products;
+        emitMerged();
+      }
     })
     .catch((err) => {
-      if (!isUnsubscribed && onError) onError(err);
+      if (!isUnsubscribed && currentBaseProducts.length === 0 && onError) {
+        onError(err);
+      }
     });
 
-  // 2. Subscribe to the single `settings/catalog_delta` document in Firestore (costs only 1 read unit!)
-  // so newly added, edited, or deleted products sync across all browsers without exhausting daily read quota.
+  // 3. Simultaneously listen to Firestore (`settings/catalog_delta`) for real-time cross-device updates
   try {
     const deltaDocRef = doc(db, SETTINGS_COLLECTION, CATALOG_DELTA_DOC_ID);
     const unsubscribeDelta = onSnapshot(
@@ -681,7 +825,7 @@ export function subscribeToProducts(
           const remoteData = docSnap.data();
           const mergedDelta = mergeRemoteDeltaIntoLocal(remoteData);
 
-          // If there are any upsertedProductIds in Firestore that aren't in our local delta yet, fetch only those individual docs
+          // Fetch any upsertedProductIds in Firestore that aren't in our local delta yet
           const remoteIds: string[] = Array.isArray(remoteData.upsertedProductIds)
             ? remoteData.upsertedProductIds
             : [];
@@ -707,7 +851,7 @@ export function subscribeToProducts(
         }
       },
       () => {
-        // If Firestore daily read quota is temporarily reached, emitMerged() still has all base + local delta products!
+        // Keep cached + delta products if Firestore read quota is temporarily reached
         emitMerged();
       }
     );

@@ -395,38 +395,17 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * Deduplicates products array by unique ID and identical SKU/Title to prevent duplicate listings
+ * Deduplicates products array by unique ID to prevent duplicate listings
+ * without dropping distinct products that share auto-generated SKUs.
  */
 export function deduplicateProducts(products: Product[]): Product[] {
   if (!Array.isArray(products)) return [];
   const seenIds = new Set<string>();
-  const seenSignatures = new Set<string>();
   const result: Product[] = [];
 
   for (const p of products) {
     if (!p || !p.id) continue;
-    // 1. Strict ID deduplication
     if (seenIds.has(p.id)) continue;
-
-    // 2. Fuzzy duplicate signature check (same SKU or same Title + Price)
-    const normalizedSku = (p.sku || '').trim().toUpperCase();
-    const normalizedTitle = (p.titleRu || '').trim().toLowerCase();
-    
-    // If SKU is present and valid, match on SKU
-    if (normalizedSku && normalizedSku !== 'MS-') {
-      const skuKey = `sku:${normalizedSku}`;
-      if (seenSignatures.has(skuKey)) {
-        continue;
-      }
-      seenSignatures.add(skuKey);
-    } else if (normalizedTitle) {
-      const titleKey = `title:${normalizedTitle}_${p.price}`;
-      if (seenSignatures.has(titleKey)) {
-        continue;
-      }
-      seenSignatures.add(titleKey);
-    }
-
     seenIds.add(p.id);
     result.push(p);
   }

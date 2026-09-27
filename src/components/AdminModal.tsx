@@ -545,7 +545,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       inStock: newInStock,
       isHit: newIsHit,
       isNew: newIsNew,
-      sku: `MS-${Math.floor(100 + Math.random() * 900)}`,
+      sku: `MS-${Date.now().toString().slice(-5)}`,
       images: [
         newImageUrl.trim() ||
           'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80',

@@ -39,6 +39,8 @@ import {
   recordLocalCategoryDelete,
   recordLocalSettingsUpdate,
   applyProductsDelta,
+  getCachedProductsFromLocalStorage,
+  saveProductsToLocalStorageCache,
 } from './services/firestoreService';
 import { trackVisit, trackProductView } from './services/analyticsService';
 import {
@@ -111,12 +113,14 @@ export default function App() {
     }
   });
 
-  // Products state (loads from shared server / Firestore catalog + local delta)
+  // Products state (loads immediately from localStorage cache + local delta, then syncs with server & Firestore)
   const [products, setProducts] = useState<Product[]>(() => {
-    const initialDeltaProds = applyProductsDelta([]);
-    return initialDeltaProds.length > 0 ? deduplicateProducts(initialDeltaProds) : [];
+    const cachedProds = getCachedProductsFromLocalStorage();
+    return cachedProds.length > 0 ? deduplicateProducts(cachedProds) : [];
   });
-  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
+  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(() => {
+    return getCachedProductsFromLocalStorage().length === 0;
+  });
   const [visibleLimit, setVisibleLimit] = useState<number>(24);
 
   // Language state
@@ -900,26 +904,33 @@ export default function App() {
           }}
           onUpdateProduct={(updated) => {
             recordLocalProductUpsert(updated);
-            setProducts((prev) =>
-              deduplicateProducts(prev.map((p) => (p.id === updated.id ? updated : p)))
-            );
+            setProducts((prev) => {
+              const next = deduplicateProducts(
+                prev.map((p) => (p.id === updated.id ? updated : p))
+              );
+              saveProductsToLocalStorageCache(next);
+              return next;
+            });
           }}
           onAddProduct={(newProd) => {
             recordLocalProductUpsert(newProd);
             setProducts((prev) => {
-              const alreadyExists = prev.some(
-                (p) => p.id === newProd.id || (p.sku && newProd.sku && p.sku === newProd.sku)
-              );
-              if (alreadyExists) {
-                return deduplicateProducts(prev.map((p) => (p.id === newProd.id ? newProd : p)));
-              }
-              return deduplicateProducts([newProd, ...prev]);
+              const alreadyExists = prev.some((p) => p.id === newProd.id);
+              const next = alreadyExists
+                ? deduplicateProducts(prev.map((p) => (p.id === newProd.id ? newProd : p)))
+                : deduplicateProducts([newProd, ...prev]);
+              saveProductsToLocalStorageCache(next);
+              return next;
             });
             showToast(lang === 'kz' ? 'Өнім сәтті қосылды!' : 'Товар успешно добавлен в каталог!');
           }}
           onDeleteProduct={(deletedId) => {
             recordLocalProductDelete(deletedId);
-            setProducts((prev) => prev.filter((p) => p.id !== deletedId));
+            setProducts((prev) => {
+              const next = prev.filter((p) => p.id !== deletedId);
+              saveProductsToLocalStorageCache(next);
+              return next;
+            });
             showToast(lang === 'kz' ? 'Өнім жойылды' : 'Товар удален из каталога');
           }}
           onPreviewProduct={handleOpenDetail}
