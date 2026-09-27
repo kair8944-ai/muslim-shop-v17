@@ -44,13 +44,3 @@ export const db = initializeFirestore(
   FIRESTORE_DB_ID
 );
 
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore operating in fallback mode.');
-    }
-  }
-}
-testConnection();

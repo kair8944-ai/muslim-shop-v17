@@ -395,17 +395,28 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * Deduplicates products array by unique ID to prevent duplicate listings
+ * Deduplicates products array by unique ID and exact Title+Price+Category
  * without dropping distinct products that share auto-generated SKUs.
  */
 export function deduplicateProducts(products: Product[]): Product[] {
   if (!Array.isArray(products)) return [];
   const seenIds = new Set<string>();
+  const seenTitleKeys = new Set<string>();
   const result: Product[] = [];
 
   for (const p of products) {
     if (!p || !p.id) continue;
     if (seenIds.has(p.id)) continue;
+
+    const normalizedTitle = (p.titleRu || '').trim().toLowerCase();
+    if (normalizedTitle) {
+      const titleKey = `${normalizedTitle}_${p.price}_${p.categoryId || ''}`;
+      if (seenTitleKeys.has(titleKey)) {
+        continue;
+      }
+      seenTitleKeys.add(titleKey);
+    }
+
     seenIds.add(p.id);
     result.push(p);
   }

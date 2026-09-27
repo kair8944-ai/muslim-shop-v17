@@ -25,6 +25,20 @@ const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v2';
 const IDB_NAME = 'muslim_shop_idb_v2';
 const IDB_VERSION = 1;
 const IDB_STORE_KV = 'kv_store';
+const IDB_BASE_CATALOG_KEY = 'base_catalog_v4';
+const SNAPSHOT_CACHE_BUSTER = 'v4';
+
+// Cloud Relay (CORS-enabled fallback when Firestore Free Tier daily read quota is reached)
+const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
+const CLOUD_RELAY_POINTER_KEY = 'muslim_shop_delta_v4';
+
+// Known accidental duplicate product IDs from earlier imports so they never appear in any browser cache
+const DEFAULT_DELETED_PRODUCT_IDS = new Set<string>([
+  'prod-1790267243324', // Duplicate Mahrem Altn Deva (MS-715)
+  'prod-1790261400014', // Duplicate Розовая женщина (MS-766)
+  'prod-1790236623971', // Duplicate Way Baraka (MS-449)
+  'prod-1790242012611', // Duplicate Altn Deva Kids (MS-124)
+]);
 
 // In-memory high-res image map to preserve large base64 images when compacting localStorage
 const inMemoryProductImages = new Map<string, string[]>();
@@ -168,7 +182,7 @@ let inMemoryDelta: CatalogDelta | null = null;
 function createEmptyDelta(): CatalogDelta {
   return {
     upsertedProducts: {},
-    deletedProductIds: [],
+    deletedProductIds: Array.from(DEFAULT_DELETED_PRODUCT_IDS),
     upsertedCategories: {},
     deletedCategoryIds: [],
     updatedAt: new Date(0).toISOString(),
@@ -181,9 +195,19 @@ export function getLocalCatalogDelta(): CatalogDelta {
     const raw = localStorage.getItem(LOCAL_DELTA_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const mergedDeletedIds = Array.from(
+        new Set([
+          ...Array.from(DEFAULT_DELETED_PRODUCT_IDS),
+          ...(Array.isArray(parsed.deletedProductIds) ? parsed.deletedProductIds : []),
+        ])
+      );
+      const upsertedProds = { ...(parsed.upsertedProducts || {}) };
+      for (const delId of DEFAULT_DELETED_PRODUCT_IDS) {
+        delete upsertedProds[delId];
+      }
       inMemoryDelta = {
-        upsertedProducts: parsed.upsertedProducts || {},
-        deletedProductIds: Array.isArray(parsed.deletedProductIds) ? parsed.deletedProductIds : [],
+        upsertedProducts: upsertedProds,
+        deletedProductIds: mergedDeletedIds,
         upsertedCategories: parsed.upsertedCategories || {},
         deletedCategoryIds: Array.isArray(parsed.deletedCategoryIds) ? parsed.deletedCategoryIds : [],
         settings: parsed.settings || undefined,
@@ -311,7 +335,10 @@ export function recordLocalSettingsUpdate(settings: Partial<StoreConfig>): void 
  */
 export function applyProductsDelta(baseProducts: Product[], customDelta?: CatalogDelta): Product[] {
   const delta = customDelta || getLocalCatalogDelta();
-  const deletedSet = new Set(delta.deletedProductIds || []);
+  const deletedSet = new Set([
+    ...Array.from(DEFAULT_DELETED_PRODUCT_IDS),
+    ...(delta.deletedProductIds || []),
+  ]);
   const map = new Map<string, Product>();
 
   for (const p of baseProducts) {
@@ -335,8 +362,15 @@ export function applyProductsDelta(baseProducts: Product[], customDelta?: Catalo
     for (const [id, prod] of Object.entries(delta.upsertedProducts)) {
       if (prod && !deletedSet.has(id)) {
         const normalized = normalizeProduct(id, prod);
-        if (normalized.images && normalized.images.length > 0) {
+        if (
+          normalized.images &&
+          normalized.images.length > 0 &&
+          normalized.images[0] &&
+          !normalized.images[0].includes('photo-1584308666744-24d5c474f2ae')
+        ) {
           inMemoryProductImages.set(normalized.id, normalized.images);
+        } else if (inMemoryProductImages.has(normalized.id)) {
+          normalized.images = inMemoryProductImages.get(normalized.id)!;
         }
         map.set(id, normalized);
       }
@@ -510,8 +544,68 @@ function mergeRemoteDeltaIntoLocal(remoteData: any): CatalogDelta {
 }
 
 /**
+ * Pushes compact delta metadata to CORS-enabled Cloud Relay so static hosts (muslimshop.kz)
+ * and browsers experiencing temporary Firestore read quota limits still sync new products across all browsers/devices.
+ */
+async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise<void> {
+  try {
+    // Strip oversized base64 strings > 80KB for relay URL/body safety while keeping full product data
+    const relayProducts: Record<string, any> = {};
+    if (deltaPayload.upsertedProducts && typeof deltaPayload.upsertedProducts === 'object') {
+      for (const [id, p] of Object.entries(deltaPayload.upsertedProducts as Record<string, any>)) {
+        if (!p) continue;
+        const safeImgs = Array.isArray(p.images)
+          ? p.images.map((img: string) =>
+              typeof img === 'string' && img.startsWith('data:') && img.length > 80000
+                ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80'
+                : img
+            )
+          : [];
+        relayProducts[id] = { ...p, images: safeImgs };
+      }
+    }
+    const compactPayload = JSON.stringify({
+      upsertedProducts: relayProducts,
+      deletedProductIds: deltaPayload.deletedProductIds || [],
+      upsertedCategories: deltaPayload.upsertedCategories || {},
+      deletedCategoryIds: deltaPayload.deletedCategoryIds || [],
+      updatedAt: deltaPayload.updatedAt || new Date().toISOString(),
+    });
+    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(compactPayload))));
+    if (encoded.length < 28000) {
+      await fetch(
+        `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_POINTER_KEY}/${encoded}`,
+        { method: 'POST' }
+      );
+    }
+  } catch {
+    // Ignore cloud relay network warnings
+  }
+}
+
+async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
+  try {
+    const res = await fetch(
+      `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_POINTER_KEY}`,
+      { method: 'GET', cache: 'no-store' }
+    );
+    if (!res.ok) return null;
+    const text = (await res.text()).replace(/^"|"$/g, '').trim();
+    if (!text) return null;
+    const jsonStr = decodeURIComponent(escape(atob(decodeURIComponent(text))));
+    const parsed = JSON.parse(jsonStr);
+    if (parsed && typeof parsed === 'object') {
+      return mergeRemoteDeltaIntoLocal(parsed);
+    }
+  } catch {
+    // Ignore cloud relay parse errors
+  }
+  return null;
+}
+
+/**
  * Syncs the current delta state to Firestore `settings/catalog_delta` (1 single document!)
- * so all other browsers/devices receive newly added/updated/deleted products using only 1 read unit!
+ * and Cloud Relay so all other browsers/devices receive newly added/updated/deleted products!
  */
 async function pushDeltaToFirestore(): Promise<void> {
   const delta = getLocalCatalogDelta();
@@ -543,19 +637,19 @@ async function pushDeltaToFirestore(): Promise<void> {
       cleanCategories[cid] = cObj;
     }
 
+    const payload = {
+      upsertedProducts: recentInlineProducts,
+      upsertedProductIds: allUpsertedList.map((p) => p.id),
+      deletedProductIds: delta.deletedProductIds,
+      upsertedCategories: cleanCategories,
+      deletedCategoryIds: delta.deletedCategoryIds,
+      updatedAt: new Date().toISOString(),
+    };
+
+    pushDeltaToCloudRelay(payload).catch(() => {});
+
     const deltaRef = doc(db, SETTINGS_COLLECTION, CATALOG_DELTA_DOC_ID);
-    await setDoc(
-      deltaRef,
-      {
-        upsertedProducts: recentInlineProducts,
-        upsertedProductIds: allUpsertedList.map((p) => p.id),
-        deletedProductIds: delta.deletedProductIds,
-        upsertedCategories: cleanCategories,
-        deletedCategoryIds: delta.deletedCategoryIds,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    await setDoc(deltaRef, payload, { merge: true });
   } catch (err) {
     console.warn('Firestore delta sync notice:', err);
   }
@@ -583,7 +677,10 @@ function isStaticGitHubPagesHost(): boolean {
  * Fetches fresh catalog payload from server API (/api/catalog) or static snapshot (./catalog-snapshot.json)
  * and updates IndexedDB + localStorage caches.
  */
-async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
+export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
+  // Pull any cross-browser Cloud Relay delta in parallel
+  await pullDeltaFromCloudRelay().catch(() => null);
+
   // 1. If not on static GitHub Pages, try Server API (/api/catalog)
   if (!isStaticGitHubPagesHost()) {
     try {
@@ -610,7 +707,7 @@ async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
             lastResolvedAt = Date.now();
             const mergedProducts = applyProductsDelta(basePayload.products);
             saveProductsToLocalStorageCache(mergedProducts);
-            idbSet('base_catalog_v2', basePayload).catch(() => {});
+            idbSet(IDB_BASE_CATALOG_KEY, basePayload).catch(() => {});
             return {
               products: mergedProducts,
               categories: applyCategoriesDelta(basePayload.categories),
@@ -624,16 +721,16 @@ async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
     }
   }
 
-  // 2. Load Static Snapshot (./catalog-snapshot.json) with browser/CDN HTTP cache enabled for fast loading
+  // 2. Load Static Snapshot (./catalog-snapshot.json?v=v4) with cache-buster so all browsers get fresh snapshot
   try {
     const baseUrl =
       typeof import.meta !== 'undefined' && (import.meta as any).env?.BASE_URL
         ? (import.meta as any).env.BASE_URL
         : './';
     const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-    const snapRes = await fetch(`${cleanBase}catalog-snapshot.json`, {
+    const snapRes = await fetch(`${cleanBase}catalog-snapshot.json?v=${SNAPSHOT_CACHE_BUSTER}`, {
       method: 'GET',
-      cache: 'default',
+      cache: 'no-cache',
     });
     if (snapRes.ok) {
       const data = await snapRes.json();
@@ -651,7 +748,7 @@ async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
         lastResolvedAt = Date.now();
         const mergedProducts = applyProductsDelta(basePayload.products);
         saveProductsToLocalStorageCache(mergedProducts);
-        idbSet('base_catalog_v2', basePayload).catch(() => {});
+        idbSet(IDB_BASE_CATALOG_KEY, basePayload).catch(() => {});
         return {
           products: mergedProducts,
           categories: applyCategoriesDelta(basePayload.categories),
@@ -689,7 +786,7 @@ export async function fetchUniversalCatalog(): Promise<SharedCatalogPayload | nu
   inFlightCatalogPromise = (async (): Promise<SharedCatalogPayload | null> => {
     // 1. Check ultra-fast IndexedDB cache first (~20ms)
     try {
-      const cached = await idbGet<SharedCatalogPayload>('base_catalog_v2');
+      const cached = await idbGet<SharedCatalogPayload>(IDB_BASE_CATALOG_KEY);
       if (cached && Array.isArray(cached.products) && cached.products.length > 0) {
         lastResolvedCatalog = cached;
         lastResolvedAt = Date.now();
@@ -743,7 +840,7 @@ async function syncServerCatalog(body: Record<string, any>): Promise<void> {
     };
     lastResolvedCatalog = updatedBase;
     saveProductsToLocalStorageCache(mergedProducts);
-    idbSet('base_catalog_v2', updatedBase).catch(() => {});
+    idbSet(IDB_BASE_CATALOG_KEY, updatedBase).catch(() => {});
   } else {
     const cached = getCachedProductsFromLocalStorage();
     if (cached.length > 0) {
@@ -767,8 +864,8 @@ async function syncServerCatalog(body: Record<string, any>): Promise<void> {
  * 1. Immediately returns the cached product list from `localStorage` (0ms synchronous load)
  *    so users see content instantly even on slower networks.
  * 2. Simultaneously hydrates high-res images from IndexedDB / Universal Catalog and revalidates
- *    against the server catalog so cross-browser changes (e.g. Chrome -> Yandex Browser) sync immediately.
- * 3. Simultaneously listens for real-time Firestore updates (`settings/catalog_delta`) and updates `localStorage`.
+ *    against the server catalog & Cloud Relay so cross-browser changes (e.g. Chrome -> Yandex Browser / iPhone) sync immediately.
+ * 3. Simultaneously listens for real-time Firestore updates (`settings/catalog_delta` and `products` collection) and updates `localStorage`.
  */
 export function subscribeToProducts(
   onSuccess: (products: Product[]) => void,
@@ -793,6 +890,13 @@ export function subscribeToProducts(
     onSuccess(initialCachedProducts);
   }
 
+  // If this browser already has locally added/edited products in its delta (e.g. Chrome where user added products),
+  // proactively push its delta to Firestore & Cloud Relay on startup so Yandex Browser / iPhone immediately receive them!
+  const existingDelta = getLocalCatalogDelta();
+  if (Object.keys(existingDelta.upsertedProducts || {}).length > 0) {
+    pushDeltaToFirestore().catch(() => {});
+  }
+
   // 2. Hydrate from IndexedDB / Snapshot & revalidate from network in background for cross-browser sync
   fetchUniversalCatalog()
     .then(async (catalog) => {
@@ -801,7 +905,7 @@ export function subscribeToProducts(
         currentBaseProducts = catalog.products;
         emitMerged();
       }
-      // Background network revalidation ensures another browser (e.g. Yandex Browser) always receives new items added in Chrome
+      // Background network + Cloud Relay revalidation ensures another browser (e.g. Yandex Browser / Safari) always receives new items added in Chrome
       const freshNet = await fetchNetworkCatalog();
       if (!isUnsubscribed && freshNet && freshNet.products.length > 0) {
         currentBaseProducts = freshNet.products;

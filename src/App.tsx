@@ -32,6 +32,7 @@ import {
   subscribeToSettings,
   getProductById,
   fetchUniversalCatalog,
+  fetchNetworkCatalog,
   isQuotaOrNetworkError,
   recordLocalProductUpsert,
   recordLocalProductDelete,
@@ -39,8 +40,10 @@ import {
   recordLocalCategoryDelete,
   recordLocalSettingsUpdate,
   applyProductsDelta,
+  getLocalCatalogDelta,
   getCachedProductsFromLocalStorage,
   saveProductsToLocalStorageCache,
+  PRODUCTS_CACHE_STORAGE_KEY,
 } from './services/firestoreService';
 import { trackVisit, trackProductView } from './services/analyticsService';
 import {
@@ -48,6 +51,145 @@ import {
   extractProductIdFromUrl,
   getProductDirectUrl,
 } from './utils/formatters';
+
+const FALLBACK_PLACEHOLDER_IMAGE = 'photo-1584308666744-24d5c474f2ae';
+
+function hasCustomImage(images?: string[]): boolean {
+  return Boolean(
+    Array.isArray(images) &&
+      images.length > 0 &&
+      images[0] &&
+      !images[0].includes(FALLBACK_PLACEHOLDER_IMAGE)
+  );
+}
+
+/**
+ * Performs a deep field-by-field comparison between two Product objects
+ * to detect any difference in metadata, price, category, stock, badges, or images.
+ */
+function areProductsDeepEqual(a: Product, b: Product): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (
+    a.id !== b.id ||
+    a.titleRu !== b.titleRu ||
+    a.titleKz !== b.titleKz ||
+    a.price !== b.price ||
+    a.oldPrice !== b.oldPrice ||
+    a.categoryId !== b.categoryId ||
+    a.inStock !== b.inStock ||
+    a.sku !== b.sku ||
+    a.isHit !== b.isHit ||
+    a.isNew !== b.isNew ||
+    a.isSale !== b.isSale ||
+    a.descriptionRu !== b.descriptionRu ||
+    a.descriptionKz !== b.descriptionKz ||
+    a.specsRu !== b.specsRu ||
+    a.specsKz !== b.specsKz ||
+    a.howToUseRu !== b.howToUseRu ||
+    a.howToUseKz !== b.howToUseKz ||
+    a.volumeOrWeight !== b.volumeOrWeight ||
+    a.country !== b.country
+  ) {
+    return false;
+  }
+
+  const aImgs = a.images || [];
+  const bImgs = b.images || [];
+  if (aImgs.length !== bImgs.length) return false;
+  for (let i = 0; i < aImgs.length; i++) {
+    if (aImgs[i] !== bImgs[i]) return false;
+  }
+
+  const aBenRu = a.benefitsRu || [];
+  const bBenRu = b.benefitsRu || [];
+  if (aBenRu.length !== bBenRu.length) return false;
+  for (let i = 0; i < aBenRu.length; i++) {
+    if (aBenRu[i] !== bBenRu[i]) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Deeply reconciles an incoming Firestore/network product snapshot with the localStorage cache.
+ * Guarantees that any newly added, edited, or deleted product in any browser or session forces a
+ * deterministic merge and cache refresh across all clients (Chrome, Yandex Browser, iPhone Safari, etc.).
+ */
+function reconcileProductsWithCache(
+  firestoreSnapshot: Product[],
+  cachedProducts: Product[]
+): { reconciled: Product[]; hasChanges: boolean } {
+  const delta = getLocalCatalogDelta();
+  const deletedSet = new Set<string>(delta.deletedProductIds || []);
+
+  // Build map starting with cached products (excluding deleted IDs)
+  const mergedMap = new Map<string, Product>();
+  for (const cached of cachedProducts) {
+    if (cached && cached.id && !deletedSet.has(cached.id)) {
+      mergedMap.set(cached.id, cached);
+    }
+  }
+
+  // Merge incoming Firestore/network snapshot with deep field & image preservation
+  for (const incoming of firestoreSnapshot) {
+    if (!incoming || !incoming.id || deletedSet.has(incoming.id)) continue;
+    const existing = mergedMap.get(incoming.id);
+    if (!existing) {
+      mergedMap.set(incoming.id, incoming);
+    } else {
+      // Preserve real product images if one of the copies has a compacted placeholder
+      const resolvedImages =
+        hasCustomImage(incoming.images)
+          ? incoming.images
+          : hasCustomImage(existing.images)
+          ? existing.images
+          : incoming.images;
+
+      // Prefer local delta override if explicitly modified locally, otherwise incoming Firestore state wins
+      const isLocallyUpserted = Boolean(delta.upsertedProducts && delta.upsertedProducts[incoming.id]);
+      const incomingNewer = (incoming.createdAt || '') >= (existing.createdAt || '');
+      const baseWinner = isLocallyUpserted && !incomingNewer ? existing : incoming;
+
+      mergedMap.set(incoming.id, {
+        ...existing,
+        ...baseWinner,
+        images: resolvedImages,
+      });
+    }
+  }
+
+  // Apply any remaining delta upserts and deduplicate
+  const combined = applyProductsDelta(Array.from(mergedMap.values()), delta);
+  const reconciled = deduplicateProducts(combined);
+
+  // Sort deterministically: newest added products first, preserving catalog order
+  reconciled.sort((a, b) => {
+    const aTime = a.id.startsWith('prod-17') ? Number(a.id.replace('prod-', '')) || 0 : 0;
+    const bTime = b.id.startsWith('prod-17') ? Number(b.id.replace('prod-', '')) || 0 : 0;
+    if (aTime !== bTime) return bTime - aTime;
+    return 0;
+  });
+
+  // Deep comparison against cachedProducts to detect if cache invalidation/update is needed
+  let hasChanges = reconciled.length !== cachedProducts.length;
+  if (!hasChanges) {
+    const cachedById = new Map<string, Product>();
+    for (const c of cachedProducts) {
+      if (c && c.id) cachedById.set(c.id, c);
+    }
+    for (let i = 0; i < reconciled.length; i++) {
+      const rec = reconciled[i];
+      const cached = cachedById.get(rec.id);
+      if (!cached || cachedProducts[i]?.id !== rec.id || !areProductsDeepEqual(rec, cached)) {
+        hasChanges = true;
+        break;
+      }
+    }
+  }
+
+  return { reconciled, hasChanges };
+}
 
 export default function App() {
   // Config state
@@ -185,19 +327,39 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDirectProductLoading, setIsDirectProductLoading] = useState<boolean>(false);
 
-  // 1. Subscribe to Firestore & Universal Server Catalog Products
+  // 1. Subscribe to Firestore & Universal Server Catalog Products with Deep Cache Reconciliation
   useEffect(() => {
     const fallbackTimer = setTimeout(() => {
       setIsLoadingProducts(false);
     }, 15000);
 
+    const applyAndReconcileSnapshot = (incomingSnapshot: Product[]) => {
+      const cachedProducts = getCachedProductsFromLocalStorage();
+      const { reconciled, hasChanges } = reconcileProductsWithCache(
+        incomingSnapshot,
+        cachedProducts
+      );
+
+      if (hasChanges) {
+        saveProductsToLocalStorageCache(reconciled);
+      }
+
+      setProducts((prev) => {
+        if (prev.length !== reconciled.length) return reconciled;
+        for (let i = 0; i < reconciled.length; i++) {
+          if (!areProductsDeepEqual(prev[i], reconciled[i])) {
+            return reconciled;
+          }
+        }
+        return prev;
+      });
+      setIsLoadingProducts(false);
+    };
+
     const unsubscribe = subscribeToProducts(
       (firestoreProducts) => {
         clearTimeout(fallbackTimer);
-        const withDelta = applyProductsDelta(firestoreProducts);
-        const deduped = deduplicateProducts(withDelta);
-        setProducts(deduped);
-        setIsLoadingProducts(false);
+        applyAndReconcileSnapshot(firestoreProducts);
       },
       (error) => {
         clearTimeout(fallbackTimer);
@@ -210,9 +372,46 @@ export default function App() {
       }
     );
 
+    // Cross-tab & cross-session synchronization when localStorage changes or window regains focus
+    const handleStorageSync = (e: StorageEvent) => {
+      if (
+        !e.key ||
+        e.key === PRODUCTS_CACHE_STORAGE_KEY ||
+        e.key === 'muslim_shop_products' ||
+        e.key === 'muslim_shop_catalog_delta_v2'
+      ) {
+        const latestCached = getCachedProductsFromLocalStorage();
+        if (latestCached.length > 0) {
+          applyAndReconcileSnapshot(latestCached);
+        }
+      }
+    };
+
+    const handleVisibilityOrFocus = async () => {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const freshCatalog = await fetchNetworkCatalog();
+        if (freshCatalog && freshCatalog.products.length > 0) {
+          applyAndReconcileSnapshot(freshCatalog.products);
+        } else {
+          const universal = await fetchUniversalCatalog();
+          if (universal && universal.products.length > 0) {
+            applyAndReconcileSnapshot(universal.products);
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener('storage', handleStorageSync);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
     return () => {
       clearTimeout(fallbackTimer);
       unsubscribe();
+      window.removeEventListener('storage', handleStorageSync);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, []);
 
