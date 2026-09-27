@@ -1179,6 +1179,42 @@ export async function saveProductToFirestore(product: Product): Promise<void> {
 }
 
 /**
+ * Bulk save multiple modified products (from Fast Price List / Mass Editor)
+ * in a single synchronized operation across Local Delta, IndexedDB, Server Cache, Cloud Relay, and Firestore.
+ */
+export async function saveProductsBulkToFirestore(productsList: Product[]): Promise<void> {
+  if (!Array.isArray(productsList) || productsList.length === 0) return;
+
+  const cleanProducts: Record<string, any>[] = [];
+  for (const product of productsList) {
+    if (!product || !product.id) continue;
+    recordLocalProductUpsert(product);
+    const cleanData: Record<string, any> = {};
+    for (const [key, val] of Object.entries(product)) {
+      if (val !== undefined) {
+        cleanData[key] = val;
+      }
+    }
+    cleanProducts.push(cleanData);
+  }
+
+  await Promise.all([
+    (async () => {
+      await Promise.all(
+        cleanProducts.map(async (cleanData) => {
+          try {
+            const docRef = doc(db, PRODUCTS_COLLECTION, cleanData.id);
+            await setDoc(docRef, cleanData, { merge: true });
+          } catch {}
+        })
+      );
+    })(),
+    pushDeltaToFirestore(),
+    syncServerCatalog({ action: 'saveProductsBulk', products: cleanProducts }),
+  ]);
+}
+
+/**
  * Create or update category in Local Delta + IndexedDB + Firestore + Server Cache
  */
 export async function saveCategoryToFirestore(category: Category): Promise<void> {

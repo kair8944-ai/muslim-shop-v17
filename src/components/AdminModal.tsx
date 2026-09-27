@@ -36,6 +36,8 @@ import {
 } from 'lucide-react';
 import { Category, Language, Product, StoreConfig } from '../types';
 import { AnalyticsTab } from './AnalyticsTab';
+import { StoriesGeneratorModal } from './StoriesGeneratorModal';
+import { BulkPriceEditorTab } from './BulkPriceEditorTab';
 import {
   saveProductToFirestore,
   deleteProductFromFirestore,
@@ -88,13 +90,14 @@ interface AdminModalProps {
   lang: Language;
   onUpdateConfig: (newConfig: StoreConfig) => void;
   onUpdateProduct: (product: Product) => void;
+  onBulkUpdateProducts?: (products: Product[]) => void;
   onAddProduct: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
   onPreviewProduct?: (product: Product) => void;
   onAddCategory?: (category: Category) => void;
   onUpdateCategory?: (category: Category) => void;
   onDeleteCategory?: (categoryId: string) => void;
-  initialTab?: 'products' | 'settings' | 'add' | 'categories' | 'stats';
+  initialTab?: 'products' | 'pricelist' | 'stories' | 'settings' | 'add' | 'categories' | 'stats';
   onClose: () => void;
 }
 
@@ -105,6 +108,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   lang,
   onUpdateConfig,
   onUpdateProduct,
+  onBulkUpdateProducts,
   onAddProduct,
   onDeleteProduct,
   onPreviewProduct,
@@ -119,9 +123,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [sessionRemainingMinutes, setSessionRemainingMinutes] = useState<number>(10);
   const [errorMsg, setErrorMsg] = useState('');
   const [currentConfig, setCurrentConfig] = useState<StoreConfig>(config);
-  const [activeTab, setActiveTab] = useState<'products' | 'settings' | 'add' | 'categories' | 'stats'>(
-    initialTab || 'products'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'products' | 'pricelist' | 'stories' | 'settings' | 'add' | 'categories' | 'stats'
+  >(initialTab || 'products');
+  const [storyProduct, setStoryProduct] = useState<Product | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showPinInSettings, setShowPinInSettings] = useState(false);
@@ -756,6 +761,36 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 Все товары ({products.length})
               </button>
               <button
+                id="admin-tab-pricelist"
+                onClick={() => {
+                  setEditingProduct(null);
+                  setActiveTab('pricelist');
+                }}
+                className={`pb-2.5 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+                  activeTab === 'pricelist'
+                    ? 'border-emerald-800 text-emerald-950 font-extrabold'
+                    : 'border-transparent text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <List className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Быстрый прайс-лист</span>
+              </button>
+              <button
+                id="admin-tab-stories"
+                onClick={() => {
+                  setEditingProduct(null);
+                  setActiveTab('stories');
+                }}
+                className={`pb-2.5 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+                  activeTab === 'stories'
+                    ? 'border-emerald-800 text-emerald-950 font-extrabold'
+                    : 'border-transparent text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5 text-amber-600" />
+                <span>Stories / Статус</span>
+              </button>
+              <button
                 onClick={() => {
                   setEditingProduct(null);
                   setActiveTab('add');
@@ -1358,15 +1393,29 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               </div>
 
                               {/* Action Buttons */}
-                              <div className="flex items-center gap-2 pt-2.5 border-t border-stone-100">
+                              <div className="flex items-center gap-1.5 pt-2.5 border-t border-stone-100">
                                 <button
                                   type="button"
                                   onClick={() => setEditingProduct(p)}
-                                  className="flex-1 py-1.5 px-2.5 rounded-xl bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                  className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer"
                                   title="Редактировать описание, фото и характеристики"
                                 >
-                                  <Edit2 className="w-3.5 h-3.5 text-amber-300" />
-                                  <span>Редактировать</span>
+                                  <Edit2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                                  <span>Изменить</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setStoryProduct(p);
+                                    setEditingProduct(null);
+                                    setActiveTab('stories');
+                                  }}
+                                  className="py-1.5 px-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300/70 font-bold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0"
+                                  title="Создать красивую карточку для Instagram Stories и WhatsApp Status в 1 клик"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-amber-800 shrink-0" />
+                                  <span>Stories</span>
                                 </button>
 
                                 {onPreviewProduct && (
@@ -1513,6 +1562,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 }`}
                               >
                                 {p.inStock ? 'В наличии' : 'Нет'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStoryProduct(p);
+                                  setEditingProduct(null);
+                                  setActiveTab('stories');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Создать карточку для Instagram Stories / WhatsApp Status"
+                              >
+                                <Camera className="w-3 h-3 text-amber-800" />
+                                <span>Stories</span>
                               </button>
 
                               <button
@@ -2425,6 +2488,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 </div>
               ) : null}
+
+              {/* FAST PRICE LIST / BULK EDITOR TAB */}
+              {activeTab === 'pricelist' && !editingProduct && (
+                <BulkPriceEditorTab
+                  products={products}
+                  categories={categories}
+                  currency={currentConfig.currency || '₸'}
+                  onUpdateProduct={onUpdateProduct}
+                  onBulkUpdateProducts={onBulkUpdateProducts}
+                  onOpenStoriesForProduct={(prod) => {
+                    setStoryProduct(prod);
+                    setActiveTab('stories');
+                  }}
+                />
+              )}
+
+              {/* INSTAGRAM STORIES & WHATSAPP STATUS GENERATOR TAB */}
+              {activeTab === 'stories' && !editingProduct && (
+                <StoriesGeneratorModal
+                  products={products}
+                  categories={categories}
+                  config={currentConfig}
+                  initialProduct={storyProduct}
+                  onClose={() => setActiveTab('products')}
+                />
+              )}
 
               {/* STATS & ANALYTICS TAB */}
               {activeTab === 'stats' && !editingProduct && (

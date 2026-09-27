@@ -1111,6 +1111,22 @@ export default function App() {
               return next;
             });
           }}
+          onBulkUpdateProducts={(updatedList) => {
+            const byId = new Map<string, Product>();
+            for (const item of updatedList) {
+              if (item && item.id) {
+                recordLocalProductUpsert(item);
+                byId.set(item.id, item);
+              }
+            }
+            setProducts((prev) => {
+              const next = deduplicateProducts(
+                prev.map((p) => (byId.has(p.id) ? byId.get(p.id)! : p))
+              );
+              saveProductsToLocalStorageCache(next);
+              return next;
+            });
+          }}
           onAddProduct={(newProd) => {
             recordLocalProductUpsert(newProd);
             setProducts((prev) => {

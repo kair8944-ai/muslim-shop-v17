@@ -527,7 +527,7 @@ app.get('/api/products/:id', async (req, res) => {
 // Admin mutation sync endpoint: keeps server cache & static snapshot 100% up-to-date immediately
 app.post('/api/catalog/sync', async (req, res) => {
   try {
-    const { action, product, productId, category, categoryId, settings } = req.body || {};
+    const { action, product, products, productId, category, categoryId, settings } = req.body || {};
     let changed = false;
 
     let nextProducts = [...catalogCache.products];
@@ -540,6 +540,17 @@ app.post('/api/catalog/sync', async (req, res) => {
         nextProducts[idx] = { ...nextProducts[idx], ...product };
       } else {
         nextProducts = [product, ...nextProducts];
+      }
+      changed = true;
+    } else if (action === 'saveProductsBulk' && Array.isArray(products) && products.length > 0) {
+      for (const item of products) {
+        if (!item || !item.id) continue;
+        const idx = nextProducts.findIndex((p) => p.id === item.id);
+        if (idx >= 0) {
+          nextProducts[idx] = { ...nextProducts[idx], ...item };
+        } else {
+          nextProducts = [item, ...nextProducts];
+        }
       }
       changed = true;
     } else if (action === 'deleteProduct' && productId) {
@@ -585,6 +596,79 @@ app.post('/api/catalog/sync', async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Sync error' });
+  }
+});
+
+// Server-side Analytics Cache (fallback & cross-browser sync alongside Cloud Relay & Firestore)
+let serverAnalyticsState: Record<string, any> = {
+  overview: { totalVisits: 0, uniqueVisitors: 0, pageViews: 0 },
+  days: {},
+  recentVisits: [],
+  updatedAt: new Date().toISOString(),
+};
+
+app.get('/api/analytics', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'ok', analytics: serverAnalyticsState });
+});
+
+app.post('/api/analytics', (req, res) => {
+  try {
+    const incoming = req.body?.analytics;
+    if (incoming && typeof incoming === 'object') {
+      const mergedDays: Record<string, any> = { ...(serverAnalyticsState.days || {}) };
+      if (incoming.days && typeof incoming.days === 'object') {
+        for (const [dKey, rDay] of Object.entries(incoming.days as Record<string, any>)) {
+          if (!rDay) continue;
+          const lDay = mergedDays[dKey];
+          if (!lDay || (Number(rDay.resetToken) || 0) > (Number(lDay.resetToken) || 0)) {
+            mergedDays[dKey] = rDay;
+          } else if ((Number(lDay.resetToken) || 0) > (Number(rDay.resetToken) || 0)) {
+            mergedDays[dKey] = lDay;
+          } else {
+            mergedDays[dKey] = {
+              ...lDay,
+              ...rDay,
+              totalVisits: Math.max(Number(lDay.totalVisits) || 0, Number(rDay.totalVisits) || 0),
+              uniqueVisitors: Math.max(Number(lDay.uniqueVisitors) || 0, Number(rDay.uniqueVisitors) || 0),
+              pageViews: Math.max(Number(lDay.pageViews) || 0, Number(rDay.pageViews) || 0),
+              mobileVisits: Math.max(Number(lDay.mobileVisits) || 0, Number(rDay.mobileVisits) || 0),
+              desktopVisits: Math.max(Number(lDay.desktopVisits) || 0, Number(rDay.desktopVisits) || 0),
+              ruVisits: Math.max(Number(lDay.ruVisits) || 0, Number(rDay.ruVisits) || 0),
+              kzVisits: Math.max(Number(lDay.kzVisits) || 0, Number(rDay.kzVisits) || 0),
+              productViews: { ...(lDay.productViews || {}), ...(rDay.productViews || {}) },
+            };
+          }
+        }
+      }
+
+      const visitMap = new Map<string, any>();
+      for (const v of [...(serverAnalyticsState.recentVisits || []), ...(incoming.recentVisits || [])]) {
+        if (v && v.id) visitMap.set(v.id, v);
+      }
+      const recentVisits = Array.from(visitMap.values())
+        .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+        .slice(0, 35);
+
+      const sumVisits = Object.values(mergedDays).reduce((acc: number, d: any) => acc + (Number(d.totalVisits) || 0), 0);
+      const sumUniques = Object.values(mergedDays).reduce((acc: number, d: any) => acc + (Number(d.uniqueVisitors) || 0), 0);
+      const sumViews = Object.values(mergedDays).reduce((acc: number, d: any) => acc + (Number(d.pageViews) || 0), 0);
+
+      serverAnalyticsState = {
+        overview: {
+          totalVisits: Math.max(Number(serverAnalyticsState.overview?.totalVisits) || 0, Number(incoming.overview?.totalVisits) || 0, sumVisits),
+          uniqueVisitors: Math.max(Number(serverAnalyticsState.overview?.uniqueVisitors) || 0, Number(incoming.overview?.uniqueVisitors) || 0, sumUniques),
+          pageViews: Math.max(Number(serverAnalyticsState.overview?.pageViews) || 0, Number(incoming.overview?.pageViews) || 0, sumViews),
+          lastVisitAt: incoming.overview?.lastVisitAt || serverAnalyticsState.overview?.lastVisitAt || new Date().toISOString(),
+        },
+        days: mergedDays,
+        recentVisits,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    res.json({ status: 'ok', analytics: serverAnalyticsState });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Analytics sync error' });
   }
 });
 
