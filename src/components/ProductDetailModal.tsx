@@ -386,7 +386,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <img
                   id="modal-main-image"
                   src={product.images[selectedImageIndex] || product.images[0]}
-                  alt={title}
+                  alt={`${title} — купить витамины iHerb и БАДы в Атырау, Бутик №24`}
                   className="w-full h-full object-cover object-center"
                   style={{ transform: `scale(${zoomLevel > 150 ? 1.15 : 1})`, transition: 'transform 0.2s ease' }}
                 />
@@ -439,7 +439,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         selectedImageIndex === idx ? 'border-emerald-700 scale-95' : 'border-stone-200 opacity-70'
                       }`}
                     >
-                      <img src={img} alt="" className="w-full h-full object-cover" />
+                      <img
+                        src={img}
+                        alt={`${title} — Витамины iHerb и халяль товары в Атырау (фото ${idx + 1})`}
+                        className="w-full h-full object-cover"
+                      />
                     </button>
                   ))}
                 </div>

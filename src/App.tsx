@@ -149,8 +149,16 @@ export default function App() {
     }
   });
 
-  // Filtering & Search state
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('cat-all');
+  // Filtering & Search state (supports ?category= from sitemap.xml & search engines)
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const catParam = params.get('category');
+      return catParam ? catParam.trim() : 'cat-all';
+    } catch {
+      return 'cat-all';
+    }
+  });
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'popular' | 'priceAsc' | 'priceDesc'>('popular');
 
@@ -414,7 +422,7 @@ export default function App() {
       ['p', 'product', 'prod', 'id', 'sku', 'item'].forEach((k) => url.searchParams.delete(k));
       const cleanPath = url.pathname + (url.search ? url.search : '');
       window.history.replaceState({}, '', cleanPath);
-      document.title = `${config.storeName} — ${lang === 'kz' ? config.taglineKz : config.taglineRu} | Бутик №24`;
+      document.title = 'MUSLIM SHOP — Купить халяль товары и витамины iHerb в Атырау | Бутик №24';
     } catch {}
   };
 
@@ -759,6 +767,42 @@ export default function App() {
           <PhoneCall className="w-6 h-6" />
         </a>
       </div>
+
+      {/* SEO Text Block before Footer */}
+      <section
+        id="seo-about-section"
+        aria-label="О магазине MUSLIM SHOP в Атырау"
+        className={`w-full border-t transition-colors ${
+          accessibility.highContrast
+            ? 'bg-white border-black text-black'
+            : 'bg-stone-100/80 border-stone-200/90 text-stone-700'
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-4 py-10 sm:py-12">
+          <div
+            className={`rounded-3xl p-6 sm:p-8 border ${
+              accessibility.highContrast
+                ? 'bg-white border-2 border-black text-black'
+                : 'bg-white border-amber-900/15 shadow-2xs'
+            }`}
+          >
+            <h2 className="font-serif font-extrabold text-xl sm:text-2xl text-emerald-950 mb-4">
+              MUSLIM SHOP — купить халяль витамины в Атырау, товары iHerb и натуральные БАДы (Бутик №24)
+            </h2>
+            <div className="space-y-3.5 text-xs sm:text-sm leading-relaxed text-stone-700">
+              <p>
+                В <strong>MUSLIM SHOP</strong> в Атырау вы можете <strong>купить халяль витамины в Атырау</strong>, оригинальные витамины <strong>iHerb</strong>, сертифицированные <strong>БАДы</strong> для мужского и женского здоровья, натуральный мёд, масло чёрного тмина, товары для хиджамы и стойкие мусульманские ароматы (миски). Мы находимся в удобной локации: <strong>г. Атырау, ТД «Дина Байзар», Бутик №24</strong>. Все представленные в каталоге позиции проходят строгий отбор качества и соответствуют стандартам Халяль.
+              </p>
+              <p>
+                В нашем ассортименте собраны проверенные комплексы и <strong>БАДы</strong> мировых брендов <strong>iHerb</strong> (Now Foods, California Gold Nutrition, Solgar, Swanson, Life-flo, ChildLife), натуральные травяные пасты, эпимедиумные и медовые сборы, средства для укрепления иммунитета, суставов, красоты кожи и роста волос. Если вы ищете, где выгодно <strong>купить халяль витамины в Атырау</strong> без ожидания долгой зарубежной пересылки — в <strong>Бутике №24</strong> самые востребованные товары уже в наличии на полках.
+              </p>
+              <p>
+                Наш магазин работает для вас <strong>ежедневно с 10:00 до 19:00</strong>. Вы можете оформить заказ прямо на сайте <strong>muslimshop.kz</strong> или через WhatsApp в 1 клик: действует оперативная курьерская доставка по городу Атырау в день обращения, удобный самовывоз из <strong>Бутика №24</strong>, а также быстрая и надёжная <strong>доставка по Казахстану</strong> (Казпочта, СДЭК и курьерские службы во все регионы РК).
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Footer (NO Telegram) */}
       <Footer config={config} lang={lang} onOpenAdmin={() => setIsAdminOpen(true)} />

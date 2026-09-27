@@ -5,14 +5,6 @@ import zlib from 'zlib';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  getFirestore,
-  collection,
-  getDocs,
-  doc,
-  getDoc,
-} from 'firebase/firestore';
 
 dotenv.config();
 
@@ -44,8 +36,62 @@ const FIREBASE_CONFIG = {
 };
 const FIRESTORE_DB_ID = 'ai-studio-muslimshop-6c5697f5-1412-4eb6-8d95-aa2cc7a70c7b';
 
-const firebaseApp = !getApps().length ? initializeApp(FIREBASE_CONFIG) : getApp();
-const serverDb = getFirestore(firebaseApp, FIRESTORE_DB_ID);
+function parseFirestoreRestValue(val: any): any {
+  if (!val || typeof val !== 'object') return undefined;
+  if ('stringValue' in val) return val.stringValue;
+  if ('integerValue' in val) return Number(val.integerValue);
+  if ('doubleValue' in val) return Number(val.doubleValue);
+  if ('booleanValue' in val) return Boolean(val.booleanValue);
+  if ('nullValue' in val) return null;
+  if ('timestampValue' in val) return val.timestampValue;
+  if ('arrayValue' in val) {
+    const values = val.arrayValue?.values;
+    return Array.isArray(values) ? values.map(parseFirestoreRestValue) : [];
+  }
+  if ('mapValue' in val) {
+    const fields = val.mapValue?.fields || {};
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      out[k] = parseFirestoreRestValue(v);
+    }
+    return out;
+  }
+  return undefined;
+}
+
+async function fetchCollectionViaRest(collectionId: string): Promise<any[]> {
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/${FIRESTORE_DB_ID}/documents:runQuery?key=${FIREBASE_CONFIG.apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId }],
+        limit: 500,
+      },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    throw new Error(`Firestore REST HTTP ${res.status}`);
+  }
+  const rows: any = await res.json();
+  if (!Array.isArray(rows)) return [];
+  const docs: any[] = [];
+  for (const row of rows) {
+    const docObj = row?.document;
+    if (docObj && docObj.name) {
+      const id = docObj.name.split('/').pop() || '';
+      const fields = docObj.fields || {};
+      const data: Record<string, any> = { id };
+      for (const [k, v] of Object.entries(fields)) {
+        data[k] = parseFirestoreRestValue(v);
+      }
+      docs.push(data);
+    }
+  }
+  return docs;
+}
 
 const SNAPSHOT_FILE_PATH = path.join(process.cwd(), 'public', 'catalog-snapshot.json');
 
@@ -114,30 +160,20 @@ try {
   console.warn('Initial catalog snapshot read notice:', err);
 }
 
-// 2. Refresh catalog from live Firestore database
+// 2. Refresh catalog from live Firestore database via stateless REST API (no idle gRPC streams)
 let isRefreshingCatalog = false;
 async function refreshCatalogFromFirestore(): Promise<boolean> {
   if (isRefreshingCatalog) return false;
   isRefreshingCatalog = true;
   try {
-    const [prodSnap, catSnap, settingsSnap] = await Promise.all([
-      getDocs(collection(serverDb, 'products')),
-      getDocs(collection(serverDb, 'categories')),
-      getDoc(doc(serverDb, 'settings', 'general')),
+    const [products, categories, settingsList] = await Promise.all([
+      fetchCollectionViaRest('products'),
+      fetchCollectionViaRest('categories'),
+      fetchCollectionViaRest('settings'),
     ]);
 
-    const products: any[] = [];
-    prodSnap.forEach((d) => {
-      products.push({ id: d.id, ...d.data() });
-    });
-
-    const categories: any[] = [];
-    catSnap.forEach((d) => {
-      categories.push({ id: d.id, ...d.data() });
-    });
     categories.sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99));
-
-    const settings = settingsSnap.exists() ? settingsSnap.data() : catalogCache.settings;
+    const generalSettings = settingsList.find((s) => s.id === 'general') || catalogCache.settings;
 
     if (products.length > 0) {
       rebuildCatalogBuffers(
@@ -147,7 +183,7 @@ async function refreshCatalogFromFirestore(): Promise<boolean> {
           categoriesCount: categories.length,
           products,
           categories: categories.length > 0 ? categories : catalogCache.categories,
-          settings: settings || catalogCache.settings,
+          settings: generalSettings || catalogCache.settings,
         },
         true
       );

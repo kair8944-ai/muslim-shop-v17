@@ -129,7 +129,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <div key={item.product.id} className="pt-4 first:pt-0 flex items-center gap-3">
                     <img
                       src={item.product.images[0]}
-                      alt={title}
+                      alt={`${title} — MUSLIM SHOP Атырау, Бутик №24`}
                       className="w-14 h-20 rounded-xl object-cover border border-stone-200 shrink-0 bg-stone-100"
                     />
 

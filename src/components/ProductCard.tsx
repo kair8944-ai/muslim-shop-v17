@@ -69,7 +69,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <img
           id={`product-img-${product.id}`}
           src={product.images[0]}
-          alt={title}
+          alt={`${title} — купить халяль товары и витамины iHerb в Атырау, Бутик №24`}
           loading="lazy"
           className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
           onError={(e) => {

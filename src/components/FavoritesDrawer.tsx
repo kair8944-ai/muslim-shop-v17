@@ -87,7 +87,7 @@ export const FavoritesDrawer: React.FC<FavoritesDrawerProps> = ({
                 <div key={product.id} className="pt-3 first:pt-0 flex items-center gap-3">
                   <img
                     src={product.images[0]}
-                    alt={title}
+                    alt={`${title} — Витамины iHerb и БАДы в Атырау, Бутик №24`}
                     onClick={() => {
                       onOpenDetail(product);
                       onClose();

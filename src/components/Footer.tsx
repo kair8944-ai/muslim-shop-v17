@@ -87,19 +87,36 @@ export const Footer: React.FC<FooterProps> = ({ config, lang }) => {
                 <span>{lang === 'kz' ? '2GIS картасынан ашу' : 'Открыть точку в 2GIS'}</span>
               </a>
 
-              {config.instagram && (
-                <div className="pt-2">
+              <div className="pt-2 flex flex-col gap-2">
+                {config.instagram && (
                   <a
-                    href={`https://instagram.com/${config.instagram}`}
+                    href={`https://instagram.com/${config.instagram.replace(/^@/, '')}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-xs text-stone-400 hover:text-pink-400 transition-colors"
+                    className="inline-flex items-center gap-2 text-xs text-stone-300 hover:text-pink-400 transition-colors"
                   >
-                    <Instagram className="w-4 h-4" />
-                    <span>@{config.instagram}</span>
+                    <Instagram className="w-4 h-4 text-pink-400 shrink-0" />
+                    <span>Instagram: @{config.instagram.replace(/^@/, '')}</span>
                   </a>
-                </div>
-              )}
+                )}
+
+                <a
+                  id="footer-tiktok-link"
+                  href="https://www.tiktok.com/@muslim_shop06?_r=1&_t=ZS-9A4oN3D5OFB"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-xs text-stone-300 hover:text-amber-300 transition-colors"
+                >
+                  <svg
+                    className="w-4 h-4 text-amber-400 shrink-0 fill-current"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
+                  </svg>
+                  <span>TikTok: @muslim_shop06</span>
+                </a>
+              </div>
             </div>
             <p className="text-[11px] text-stone-400 leading-relaxed pt-1">
               {lang === 'kz' ? config.pickupInfoKz : config.pickupInfoRu}

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#022c22" />
+      <stop offset="50%" stop-color="#064e3b" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#fde68a" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect x="36" y="36" width="1128" height="558" rx="28" fill="none" stroke="url(#gold)" stroke-width="3" opacity="0.65" />
+  <text x="600" y="170" text-anchor="middle" fill="#fbbf24" font-family="Georgia, serif" font-size="26" font-weight="bold" letter-spacing="6">Г. АТЫРАУ • БУТИК №24</text>
+  <text x="600" y="275" text-anchor="middle" fill="#ffffff" font-family="Georgia, serif" font-size="82" font-weight="bold" letter-spacing="8">MUSLIM SHOP</text>
+  <text x="600" y="355" text-anchor="middle" fill="#fde68a" font-family="Arial, sans-serif" font-size="34" font-weight="bold">Халяль-товары • Витамины iHerb • БАДы • Натуральный мёд</text>
+  <text x="600" y="425" text-anchor="middle" fill="#d1fae5" font-family="Arial, sans-serif" font-size="26">Товары для мужского и женского здоровья • Мусульманские ароматы</text>
+  <rect x="350" y="475" width="500" height="64" rx="32" fill="#f59e0b" />
+  <text x="600" y="516" text-anchor="middle" fill="#022c22" font-family="Arial, sans-serif" font-size="26" font-weight="bold">muslimshop.kz • Доставка по РК</text>
+</svg>
