@@ -127,7 +127,7 @@ const STICKER_PRESETS = [
   '🔥 ХИТ ПРОДАЖ',
   '✨ 100% ОРИГИНАЛ',
   '🌿 НАТУРАЛЬНЫЙ СОСТАВ',
-  '⚡ В НАЛИЧИИ В АЛМАТЫ',
+  '⚡ В НАЛИЧИИ В АТЫРАУ',
   '🎁 ВЫГОДНАЯ ЦЕНА',
   '💎 КАЧЕСТВО PREMIUM',
 ];
@@ -313,7 +313,7 @@ export const StoriesGeneratorModal: React.FC<StoriesGeneratorProps> = ({
     ctx.textAlign = 'center';
     ctx.fillStyle = activeTheme.accent;
     ctx.font = '800 30px Inter, system-ui, sans-serif';
-    ctx.fillText('🌿 MUSLIM SHOP • ALMATY', W / 2, 118);
+    ctx.fillText('🌿 MUSLIM SHOP • АТЫРАУ', W / 2, 118);
 
     ctx.fillStyle = activeTheme.textSecondary;
     ctx.font = '600 22px Inter, system-ui, sans-serif';

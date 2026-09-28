@@ -19,26 +19,40 @@ export const SETTINGS_COLLECTION = 'settings';
 export const ORDERS_COLLECTION = 'orders';
 export const CATALOG_DELTA_DOC_ID = 'catalog_delta';
 
-export const PRODUCTS_CACHE_STORAGE_KEY = 'muslim_shop_products_cache';
+export const PRODUCTS_CACHE_STORAGE_KEY = 'muslim_shop_products_cache_v3';
 const LEGACY_PRODUCTS_CACHE_KEY = 'muslim_shop_products';
-const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v2';
+const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v4';
 const IDB_NAME = 'muslim_shop_idb_v2';
 const IDB_VERSION = 1;
 const IDB_STORE_KV = 'kv_store';
-const IDB_BASE_CATALOG_KEY = 'base_catalog_v6';
-const SNAPSHOT_CACHE_BUSTER = 'v6';
+const IDB_BASE_CATALOG_KEY = 'base_catalog_v8';
+const SNAPSHOT_CACHE_BUSTER = 'v8';
 
 // Cloud Relay (CORS-enabled chunked fallback when Firestore Free Tier daily read quota is reached)
 const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
-const CLOUD_RELAY_CHUNK_PREFIX = 'ms_d5_';
+const CLOUD_RELAY_CHUNK_PREFIX = 'ms_d6_';
 
-// Known accidental duplicate product IDs from earlier imports so they never appear in any browser cache
+// Known accidental duplicate product IDs so they never appear in any browser cache
 const DEFAULT_DELETED_PRODUCT_IDS = new Set<string>([
   'prod-1790267243324', // Duplicate Mahrem Altn Deva (MS-715)
   'prod-1790261400014', // Duplicate Розовая женщина (MS-766)
   'prod-1790236623971', // Duplicate Way Baraka (MS-449)
   'prod-1790242012611', // Duplicate Altn Deva Kids (MS-124)
+  'prod-1790515157486', // Duplicate Clinright-CT (MS-57486)
+  'prod-1790506560488', // Duplicate Чка Доянь (MS-349)
+  'prod-1790594233790', // Duplicate Тибетский Олень (MS-33790)
 ]);
+
+function hasRealProductImage(prod: any): boolean {
+  return Boolean(
+    prod &&
+      Array.isArray(prod.images) &&
+      prod.images.length > 0 &&
+      typeof prod.images[0] === 'string' &&
+      prod.images[0].length > 10 &&
+      !prod.images[0].includes('photo-1584308666744-24d5c474f2ae')
+  );
+}
 
 // In-memory high-res image map to preserve large base64 images when compacting localStorage
 const inMemoryProductImages = new Map<string, string[]>();
@@ -201,9 +215,11 @@ export function getLocalCatalogDelta(): CatalogDelta {
           ...(Array.isArray(parsed.deletedProductIds) ? parsed.deletedProductIds : []),
         ])
       );
-      const upsertedProds = { ...(parsed.upsertedProducts || {}) };
-      for (const delId of DEFAULT_DELETED_PRODUCT_IDS) {
-        delete upsertedProds[delId];
+      const upsertedProds: Record<string, Product> = {};
+      for (const [id, prod] of Object.entries(parsed.upsertedProducts || {})) {
+        if (!DEFAULT_DELETED_PRODUCT_IDS.has(id) && !mergedDeletedIds.includes(id) && hasRealProductImage(prod)) {
+          upsertedProds[id] = prod as Product;
+        }
       }
       inMemoryDelta = {
         upsertedProducts: upsertedProds,
@@ -241,19 +257,30 @@ function saveLocalCatalogDelta(delta: CatalogDelta): void {
       }
     } catch {}
   }
-  idbSet('catalog_delta', delta).catch(() => {});
+  idbSet('catalog_delta_v3', delta).catch(() => {});
 }
 
 // Hydrate inMemoryDelta from IndexedDB on boot in case >20 products were added locally
-idbGet<CatalogDelta>('catalog_delta')
+idbGet<CatalogDelta>('catalog_delta_v3')
   .then((idbDelta) => {
     if (idbDelta && idbDelta.upsertedProducts) {
       const current = getLocalCatalogDelta();
+      const mergedDeleted = Array.from(
+        new Set([
+          ...Array.from(DEFAULT_DELETED_PRODUCT_IDS),
+          ...(idbDelta.deletedProductIds || []),
+          ...(current.deletedProductIds || []),
+        ])
+      );
+      const mergedUpserted: Record<string, Product> = {};
+      for (const [id, p] of Object.entries({ ...idbDelta.upsertedProducts, ...current.upsertedProducts })) {
+        if (!mergedDeleted.includes(id) && hasRealProductImage(p)) {
+          mergedUpserted[id] = p;
+        }
+      }
       const merged: CatalogDelta = {
-        upsertedProducts: { ...idbDelta.upsertedProducts, ...current.upsertedProducts },
-        deletedProductIds: Array.from(
-          new Set([...(idbDelta.deletedProductIds || []), ...(current.deletedProductIds || [])])
-        ),
+        upsertedProducts: mergedUpserted,
+        deletedProductIds: mergedDeleted,
         upsertedCategories: { ...idbDelta.upsertedCategories, ...current.upsertedCategories },
         deletedCategoryIds: Array.from(
           new Set([...(idbDelta.deletedCategoryIds || []), ...(current.deletedCategoryIds || [])])
@@ -362,17 +389,16 @@ export function applyProductsDelta(baseProducts: Product[], customDelta?: Catalo
     for (const [id, prod] of Object.entries(delta.upsertedProducts)) {
       if (prod && !deletedSet.has(id)) {
         const normalized = normalizeProduct(id, prod);
-        if (
-          normalized.images &&
-          normalized.images.length > 0 &&
-          normalized.images[0] &&
-          !normalized.images[0].includes('photo-1584308666744-24d5c474f2ae')
-        ) {
+        if (hasRealProductImage(normalized)) {
           inMemoryProductImages.set(normalized.id, normalized.images);
+          map.set(id, normalized);
         } else if (inMemoryProductImages.has(normalized.id)) {
           normalized.images = inMemoryProductImages.get(normalized.id)!;
+          map.set(id, normalized);
+        } else if (map.has(id)) {
+          const baseExisting = map.get(id)!;
+          map.set(id, { ...normalized, images: baseExisting.images });
         }
-        map.set(id, normalized);
       }
     }
   }
@@ -393,15 +419,18 @@ export function getCachedProductsFromLocalStorage(): Product[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const normalized = parsed
-          .filter((p) => p && p.id)
+          .filter((p) => p && p.id && !DEFAULT_DELETED_PRODUCT_IDS.has(p.id))
           .map((p) => {
             const norm = normalizeProduct(p.id, p);
             if (inMemoryProductImages.has(norm.id)) {
               norm.images = inMemoryProductImages.get(norm.id)!;
             }
             return norm;
-          });
-        return applyProductsDelta(normalized);
+          })
+          .filter((norm) => hasRealProductImage(norm));
+        if (normalized.length > 0) {
+          return applyProductsDelta(normalized);
+        }
       }
     }
   } catch {
@@ -505,20 +534,22 @@ function mergeRemoteDeltaIntoLocal(remoteData: any): CatalogDelta {
   const mergedUpsertedProds: Record<string, Product> = { ...local.upsertedProducts };
   if (remoteData.upsertedProducts && typeof remoteData.upsertedProducts === 'object') {
     for (const [id, prod] of Object.entries(remoteData.upsertedProducts)) {
-      if (prod && !mergedDeletedProds.includes(id)) {
+      if (prod && !mergedDeletedProds.includes(id) && !DEFAULT_DELETED_PRODUCT_IDS.has(id)) {
         const existing = mergedUpsertedProds[id];
         const remoteNorm = normalizeProduct(id, prod);
+        // Never allow a placeholder demo image to overwrite or pollute upsertedProducts
+        if (!hasRealProductImage(remoteNorm)) {
+          continue;
+        }
         if (!existing || (remoteNorm.createdAt || '') >= (existing.createdAt || '')) {
           mergedUpsertedProds[id] = remoteNorm;
         }
       }
     }
   }
-  // Remove any upserted product that was later deleted
-  for (const delId of remoteDeletedProds) {
-    if (!local.upsertedProducts[delId]) {
-      delete mergedUpsertedProds[delId];
-    }
+  // Remove any upserted product that was later deleted or lacks a real image
+  for (const delId of mergedDeletedProds) {
+    delete mergedUpsertedProds[delId];
   }
 
   const mergedUpsertedCats: Record<string, Category> = { ...local.upsertedCategories };
@@ -709,9 +740,42 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
       const local = getLocalCatalogDelta();
       const upsertedMap: Record<string, Product> = {};
       for (const item of parsed.p) {
-        if (!item || !item.i) continue;
-        // Don't overwrite if we already have the full product with high-res base64 image
+        if (!item || !item.i || DEFAULT_DELETED_PRODUCT_IDS.has(item.i)) continue;
+        // Don't create stub products without real images
         const existing = local.upsertedProducts[item.i];
+        const memImgs = inMemoryProductImages.get(item.i);
+        let resolvedImg =
+          existing?.images && existing.images.length > 0 && hasRealProductImage(existing)
+            ? existing.images[0]
+            : memImgs && memImgs.length > 0 && !memImgs[0].includes('photo-1584308666744-24d5c474f2ae')
+            ? memImgs[0]
+            : item.u && !item.u.includes('photo-1584308666744-24d5c474f2ae')
+            ? item.u
+            : '';
+
+        if (!resolvedImg) {
+          try {
+            const pDoc = await getDoc(doc(db, PRODUCTS_COLLECTION, item.i));
+            if (pDoc.exists()) {
+              const fullProd = normalizeProduct(item.i, pDoc.data());
+              if (hasRealProductImage(fullProd)) {
+                inMemoryProductImages.set(item.i, fullProd.images);
+                upsertedMap[item.i] = {
+                  ...fullProd,
+                  price: typeof item.p === 'number' ? item.p : fullProd.price,
+                  oldPrice: typeof item.o === 'number' ? item.o : fullProd.oldPrice,
+                  inStock: typeof item.k === 'number' ? Boolean(item.k) : fullProd.inStock,
+                  isHit: typeof item.h === 'number' ? Boolean(item.h) : fullProd.isHit,
+                  isNew: typeof item.n === 'number' ? Boolean(item.n) : fullProd.isNew,
+                };
+              }
+            }
+          } catch {
+            // Ignore single-doc fetch error
+          }
+          continue;
+        }
+
         upsertedMap[item.i] = normalizeProduct(item.i, {
           ...(existing || {}),
           id: item.i,
@@ -723,12 +787,7 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
           inStock: Boolean(item.k),
           isHit: Boolean(item.h),
           isNew: Boolean(item.n),
-          images:
-            existing?.images && existing.images.length > 0
-              ? existing.images
-              : item.u
-              ? [item.u]
-              : undefined,
+          images: [resolvedImg],
         });
       }
       return mergeRemoteDeltaIntoLocal({
