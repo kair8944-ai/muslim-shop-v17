@@ -44,6 +44,7 @@ import {
   saveSettingsToFirestore,
   saveCategoryToFirestore,
   deleteCategoryFromFirestore,
+  pushDeltaToFirestore,
 } from '../services/firestoreService';
 import {
   getProductDirectUrl,
@@ -129,6 +130,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [storyProduct, setStoryProduct] = useState<Product | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncedNotice, setCloudSyncedNotice] = useState(false);
   const [showPinInSettings, setShowPinInSettings] = useState(false);
   const [lockoutRemainingMs, setLockoutRemainingMs] = useState<number>(() => getLockoutRemainingMs());
   const isSubmittingAddProductRef = useRef(false);
@@ -649,6 +652,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           <div className="flex items-center gap-2">
             {isAuthenticated && (
               <>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isSyncingCloud) return;
+                    setIsSyncingCloud(true);
+                    try {
+                      await pushDeltaToFirestore();
+                      setCloudSyncedNotice(true);
+                      setTimeout(() => setCloudSyncedNotice(false), 3000);
+                    } finally {
+                      setIsSyncingCloud(false);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                  title="Мгновенно отправить все новые товары во все браузеры (Яндекс, Safari, телефоны клиентов)"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">
+                    {cloudSyncedNotice ? 'Синхронизировано!' : 'Обновить для всех'}
+                  </span>
+                </button>
                 <button
                   id="admin-header-settings-btn"
                   onClick={() => {

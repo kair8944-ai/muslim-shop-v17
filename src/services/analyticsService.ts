@@ -4,7 +4,7 @@ import {
   increment,
   onSnapshot,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, FIREBASE_CONFIG, FIRESTORE_DB_ID } from '../firebase';
 import { AnalyticsOverview, DailyAnalytics, VisitLogItem } from '../types';
 
 export const SETTINGS_COLLECTION = 'settings';
@@ -18,7 +18,7 @@ const ANALYTICS_LOCAL_CACHE_KEY = 'muslim_shop_analytics_cache_v4';
 
 // CORS-enabled Cloud Relay for cross-browser & cross-device analytics (works on muslimshop.kz and when Firestore read quota is reached)
 const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
-const CLOUD_RELAY_ANALYTICS_KEY = 'muslim_shop_analytics_v4';
+const CLOUD_RELAY_ANALYTICS_PREFIX = 'ms_a5_';
 
 export interface PersistedAnalyticsState {
   overview: {
@@ -322,16 +322,66 @@ export function mergeAnalyticsStates(
   };
 }
 
-async function pullAnalyticsFromCloudRelay(): Promise<PersistedAnalyticsState | null> {
+function fromFirestoreRestVal(v: any): any {
+  if (!v || typeof v !== 'object') return v;
+  if ('stringValue' in v) return v.stringValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return Number(v.doubleValue);
+  if ('booleanValue' in v) return Boolean(v.booleanValue);
+  if ('nullValue' in v) return null;
+  if ('arrayValue' in v) return (v.arrayValue?.values || []).map(fromFirestoreRestVal);
+  if ('mapValue' in v) {
+    const out: Record<string, any> = {};
+    for (const [k, val] of Object.entries(v.mapValue?.fields || {})) {
+      out[k] = fromFirestoreRestVal(val);
+    }
+    return out;
+  }
+  return undefined;
+}
+
+async function pullAnalyticsFromFirestoreRest(): Promise<PersistedAnalyticsState | null> {
   try {
     const res = await fetch(
-      `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_ANALYTICS_KEY}`,
+      `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/${FIRESTORE_DB_ID}/documents/${SETTINGS_COLLECTION}/${ANALYTICS_DOC_ID}?key=${FIREBASE_CONFIG.apiKey}`,
       { method: 'GET', cache: 'no-store' }
     );
     if (!res.ok) return null;
-    const text = (await res.text()).replace(/^"|"$/g, '').trim();
-    if (!text) return null;
-    const jsonStr = decodeURIComponent(escape(atob(decodeURIComponent(text))));
+    const rawDoc = await res.json();
+    if (!rawDoc || !rawDoc.fields) return null;
+    const parsed = fromFirestoreRestVal({ mapValue: { fields: rawDoc.fields } });
+    if (parsed && typeof parsed === 'object') {
+      const merged = mergeAnalyticsStates(getLocalAnalyticsState(), parsed);
+      saveLocalAnalyticsState(merged);
+      return merged;
+    }
+  } catch {}
+  return null;
+}
+
+async function pullAnalyticsFromCloudRelay(): Promise<PersistedAnalyticsState | null> {
+  try {
+    const lenRes = await fetch(
+      `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_ANALYTICS_PREFIX}len`,
+      { method: 'GET', cache: 'no-store' }
+    );
+    if (!lenRes.ok) return null;
+    const lenNum = parseInt((await lenRes.text()).replace(/^"|"$/g, '').trim(), 10);
+    if (!lenNum || isNaN(lenNum) || lenNum <= 0 || lenNum > 20) return null;
+
+    const parts = await Promise.all(
+      Array.from({ length: lenNum }, (_, idx) =>
+        fetch(
+          `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_ANALYTICS_PREFIX}c${idx}`,
+          { method: 'GET', cache: 'no-store' }
+        ).then(async (r) => (r.ok ? (await r.text()).replace(/^"|"$/g, '').trim() : ''))
+      )
+    );
+    if (parts.some((p) => !p)) return null;
+    let b64 = parts.join('').replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+
+    const jsonStr = decodeURIComponent(escape(atob(b64)));
     const parsed = JSON.parse(jsonStr);
     if (parsed && typeof parsed === 'object') {
       const merged = mergeAnalyticsStates(getLocalAnalyticsState(), parsed);
@@ -344,8 +394,7 @@ async function pullAnalyticsFromCloudRelay(): Promise<PersistedAnalyticsState | 
 
 async function pushAnalyticsToCloudRelay(state: PersistedAnalyticsState): Promise<void> {
   try {
-    // Keep last 14 days and 20 recent visits so payload stays ultra-compact (<15KB)
-    const sortedDayKeys = Object.keys(state.days || {}).sort().slice(-14);
+    const sortedDayKeys = Object.keys(state.days || {}).sort().slice(-7);
     const compactDays: PersistedAnalyticsState['days'] = {};
     for (const k of sortedDayKeys) {
       compactDays[k] = state.days[k];
@@ -353,13 +402,30 @@ async function pushAnalyticsToCloudRelay(state: PersistedAnalyticsState): Promis
     const compactState: PersistedAnalyticsState = {
       overview: state.overview,
       days: compactDays,
-      recentVisits: (state.recentVisits || []).slice(0, 20),
+      recentVisits: (state.recentVisits || []).slice(0, 8),
       updatedAt: state.updatedAt,
     };
-    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(compactState)))));
-    if (encoded.length < 28000) {
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(compactState))))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const chunkSize = 180;
+    const chunks: string[] = [];
+    for (let i = 0; i < b64.length; i += chunkSize) {
+      chunks.push(b64.slice(i, i + chunkSize));
+    }
+    if (chunks.length > 0 && chunks.length <= 20) {
+      await Promise.all(
+        chunks.map((chunk, idx) =>
+          fetch(
+            `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_ANALYTICS_PREFIX}c${idx}/${chunk}`,
+            { method: 'POST' }
+          )
+        )
+      );
       await fetch(
-        `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_ANALYTICS_KEY}/${encoded}`,
+        `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_ANALYTICS_PREFIX}len/${chunks.length}`,
         { method: 'POST' }
       );
     }
@@ -396,12 +462,16 @@ async function pushAnalyticsToServer(state: PersistedAnalyticsState): Promise<vo
  * Pulls latest remote state from Cloud Relay + Server, merges with local state, and pushes back.
  */
 export async function syncAnalyticsEverywhere(): Promise<PersistedAnalyticsState> {
-  const [relayState, serverState] = await Promise.all([
+  const [restState, relayState, serverState] = await Promise.all([
+    pullAnalyticsFromFirestoreRest().catch(() => null),
     pullAnalyticsFromCloudRelay().catch(() => null),
     pullAnalyticsFromServer().catch(() => null),
   ]);
 
   let current = getLocalAnalyticsState();
+  if (restState) {
+    current = mergeAnalyticsStates(current, restState);
+  }
   if (relayState) {
     current = mergeAnalyticsStates(current, relayState);
   }

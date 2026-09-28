@@ -10,7 +10,7 @@ import {
   query,
   where,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, FIREBASE_CONFIG, FIRESTORE_DB_ID } from '../firebase';
 import { Category, Product, StoreConfig } from '../types';
 
 export const PRODUCTS_COLLECTION = 'products';
@@ -25,12 +25,12 @@ const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v2';
 const IDB_NAME = 'muslim_shop_idb_v2';
 const IDB_VERSION = 1;
 const IDB_STORE_KV = 'kv_store';
-const IDB_BASE_CATALOG_KEY = 'base_catalog_v4';
-const SNAPSHOT_CACHE_BUSTER = 'v4';
+const IDB_BASE_CATALOG_KEY = 'base_catalog_v6';
+const SNAPSHOT_CACHE_BUSTER = 'v6';
 
-// Cloud Relay (CORS-enabled fallback when Firestore Free Tier daily read quota is reached)
+// Cloud Relay (CORS-enabled chunked fallback when Firestore Free Tier daily read quota is reached)
 const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
-const CLOUD_RELAY_POINTER_KEY = 'muslim_shop_delta_v4';
+const CLOUD_RELAY_CHUNK_PREFIX = 'ms_d5_';
 
 // Known accidental duplicate product IDs from earlier imports so they never appear in any browser cache
 const DEFAULT_DELETED_PRODUCT_IDS = new Set<string>([
@@ -544,37 +544,134 @@ function mergeRemoteDeltaIntoLocal(remoteData: any): CatalogDelta {
 }
 
 /**
- * Pushes compact delta metadata to CORS-enabled Cloud Relay so static hosts (muslimshop.kz)
- * and browsers experiencing temporary Firestore read quota limits still sync new products across all browsers/devices.
+ * Converts a Firestore REST API Value into a plain JS value
+ */
+function fromFirestoreRestVal(v: any): any {
+  if (!v || typeof v !== 'object') return v;
+  if ('stringValue' in v) return v.stringValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return Number(v.doubleValue);
+  if ('booleanValue' in v) return Boolean(v.booleanValue);
+  if ('nullValue' in v) return null;
+  if ('arrayValue' in v) return (v.arrayValue?.values || []).map(fromFirestoreRestVal);
+  if ('mapValue' in v) {
+    const out: Record<string, any> = {};
+    for (const [k, val] of Object.entries(v.mapValue?.fields || {})) {
+      out[k] = fromFirestoreRestVal(val);
+    }
+    return out;
+  }
+  return undefined;
+}
+
+/**
+ * Direct HTTPS REST reader for Firestore `settings/catalog_delta` (costs only 1 read unit,
+ * bypasses Yandex Browser / Safari WebChannel blocks so new products appear immediately in all browsers!)
+ */
+async function pullDeltaFromFirestoreRest(): Promise<CatalogDelta | null> {
+  try {
+    const baseUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/${FIRESTORE_DB_ID}/documents`;
+    const res = await fetch(
+      `${baseUrl}/${SETTINGS_COLLECTION}/${CATALOG_DELTA_DOC_ID}?key=${FIREBASE_CONFIG.apiKey}`,
+      { method: 'GET', cache: 'no-store' }
+    );
+    if (!res.ok) return null;
+    const rawDoc = await res.json();
+    if (!rawDoc || !rawDoc.fields) return null;
+
+    const remoteData = fromFirestoreRestVal({ mapValue: { fields: rawDoc.fields } });
+    const merged = mergeRemoteDeltaIntoLocal(remoteData);
+
+    // Also fetch any newly added product IDs that aren't in our local cache yet
+    const remoteIds: string[] = Array.isArray(remoteData.upsertedProductIds)
+      ? remoteData.upsertedProductIds
+      : [];
+    const missingIds = remoteIds.filter(
+      (id) => !merged.upsertedProducts[id] && !merged.deletedProductIds.includes(id)
+    );
+
+    if (missingIds.length > 0) {
+      await Promise.all(
+        missingIds.slice(0, 15).map(async (id) => {
+          try {
+            const pRes = await fetch(
+              `${baseUrl}/${PRODUCTS_COLLECTION}/${id}?key=${FIREBASE_CONFIG.apiKey}`,
+              { method: 'GET', cache: 'no-store' }
+            );
+            if (pRes.ok) {
+              const pDoc = await pRes.json();
+              if (pDoc && pDoc.fields) {
+                const pObj = fromFirestoreRestVal({ mapValue: { fields: pDoc.fields } });
+                recordLocalProductUpsert(normalizeProduct(id, pObj));
+              }
+            }
+          } catch {}
+        })
+      );
+    }
+
+    return getLocalCatalogDelta();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pushes compact delta metadata to CORS-enabled Cloud Relay in 180-char URL-safe chunks
+ * so static hosts (muslimshop.kz) and browsers experiencing temporary Firestore read quota limits
+ * still sync new products across Chrome, Yandex Browser, Safari, and mobile phones for free.
  */
 async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise<void> {
   try {
-    // Strip oversized base64 strings > 80KB for relay URL/body safety while keeping full product data
-    const relayProducts: Record<string, any> = {};
-    if (deltaPayload.upsertedProducts && typeof deltaPayload.upsertedProducts === 'object') {
-      for (const [id, p] of Object.entries(deltaPayload.upsertedProducts as Record<string, any>)) {
-        if (!p) continue;
-        const safeImgs = Array.isArray(p.images)
-          ? p.images.map((img: string) =>
-              typeof img === 'string' && img.startsWith('data:') && img.length > 80000
-                ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80'
-                : img
-            )
-          : [];
-        relayProducts[id] = { ...p, images: safeImgs };
-      }
-    }
-    const compactPayload = JSON.stringify({
-      upsertedProducts: relayProducts,
-      deletedProductIds: deltaPayload.deletedProductIds || [],
-      upsertedCategories: deltaPayload.upsertedCategories || {},
-      deletedCategoryIds: deltaPayload.deletedCategoryIds || [],
-      updatedAt: deltaPayload.updatedAt || new Date().toISOString(),
+    const allProducts = Object.values((deltaPayload.upsertedProducts || {}) as Record<string, any>)
+      .filter(Boolean)
+      .sort((a: any, b: any) => (b.createdAt || b.id || '').localeCompare(a.createdAt || a.id || ''))
+      .slice(0, 10);
+
+    const compactItems = allProducts.map((p: any) => ({
+      i: p.id,
+      r: (p.titleRu || '').slice(0, 90),
+      p: p.price,
+      o: p.oldPrice,
+      c: p.categoryId,
+      s: p.sku,
+      k: p.inStock ? 1 : 0,
+      h: p.isHit ? 1 : 0,
+      n: p.isNew ? 1 : 0,
+      u:
+        Array.isArray(p.images) && p.images[0] && !p.images[0].startsWith('data:')
+          ? p.images[0]
+          : '',
+    }));
+
+    const compactStr = JSON.stringify({
+      p: compactItems,
+      d: (deltaPayload.deletedProductIds || []).slice(-15),
+      t: Date.now(),
     });
-    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(compactPayload))));
-    if (encoded.length < 28000) {
+
+    const b64 = btoa(unescape(encodeURIComponent(compactStr)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const chunkSize = 180;
+    const chunks: string[] = [];
+    for (let i = 0; i < b64.length; i += chunkSize) {
+      chunks.push(b64.slice(i, i + chunkSize));
+    }
+
+    if (chunks.length > 0 && chunks.length <= 20) {
+      await Promise.all(
+        chunks.map((chunk, idx) =>
+          fetch(
+            `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}c${idx}/${chunk}`,
+            { method: 'POST' }
+          )
+        )
+      );
       await fetch(
-        `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_POINTER_KEY}/${encoded}`,
+        `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}len/${chunks.length}`,
         { method: 'POST' }
       );
     }
@@ -585,17 +682,59 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
 
 async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
   try {
-    const res = await fetch(
-      `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_POINTER_KEY}`,
+    const lenRes = await fetch(
+      `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}len`,
       { method: 'GET', cache: 'no-store' }
     );
-    if (!res.ok) return null;
-    const text = (await res.text()).replace(/^"|"$/g, '').trim();
-    if (!text) return null;
-    const jsonStr = decodeURIComponent(escape(atob(decodeURIComponent(text))));
+    if (!lenRes.ok) return null;
+    const lenNum = parseInt((await lenRes.text()).replace(/^"|"$/g, '').trim(), 10);
+    if (!lenNum || isNaN(lenNum) || lenNum <= 0 || lenNum > 20) return null;
+
+    const parts = await Promise.all(
+      Array.from({ length: lenNum }, (_, idx) =>
+        fetch(
+          `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}c${idx}`,
+          { method: 'GET', cache: 'no-store' }
+        ).then(async (r) => (r.ok ? (await r.text()).replace(/^"|"$/g, '').trim() : ''))
+      )
+    );
+
+    if (parts.some((p) => !p)) return null;
+    let b64 = parts.join('').replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+
+    const jsonStr = decodeURIComponent(escape(atob(b64)));
     const parsed = JSON.parse(jsonStr);
-    if (parsed && typeof parsed === 'object') {
-      return mergeRemoteDeltaIntoLocal(parsed);
+    if (parsed && Array.isArray(parsed.p)) {
+      const local = getLocalCatalogDelta();
+      const upsertedMap: Record<string, Product> = {};
+      for (const item of parsed.p) {
+        if (!item || !item.i) continue;
+        // Don't overwrite if we already have the full product with high-res base64 image
+        const existing = local.upsertedProducts[item.i];
+        upsertedMap[item.i] = normalizeProduct(item.i, {
+          ...(existing || {}),
+          id: item.i,
+          titleRu: existing?.titleRu || item.r,
+          price: item.p,
+          oldPrice: item.o,
+          categoryId: item.c || 'cat-health',
+          sku: item.s,
+          inStock: Boolean(item.k),
+          isHit: Boolean(item.h),
+          isNew: Boolean(item.n),
+          images:
+            existing?.images && existing.images.length > 0
+              ? existing.images
+              : item.u
+              ? [item.u]
+              : undefined,
+        });
+      }
+      return mergeRemoteDeltaIntoLocal({
+        upsertedProducts: upsertedMap,
+        deletedProductIds: parsed.d || [],
+      });
     }
   } catch {
     // Ignore cloud relay parse errors
@@ -607,7 +746,7 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
  * Syncs the current delta state to Firestore `settings/catalog_delta` (1 single document!)
  * and Cloud Relay so all other browsers/devices receive newly added/updated/deleted products!
  */
-async function pushDeltaToFirestore(): Promise<void> {
+export async function pushDeltaToFirestore(): Promise<void> {
   const delta = getLocalCatalogDelta();
   try {
     // Keep upsertedProducts in Firestore delta document under 750KB (most recent 12 products inline, plus all IDs)
@@ -678,8 +817,11 @@ function isStaticGitHubPagesHost(): boolean {
  * and updates IndexedDB + localStorage caches.
  */
 export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
-  // Pull any cross-browser Cloud Relay delta in parallel
-  await pullDeltaFromCloudRelay().catch(() => null);
+  // Pull any cross-browser Firestore REST delta AND Cloud Relay delta in parallel
+  await Promise.all([
+    pullDeltaFromFirestoreRest().catch(() => null),
+    pullDeltaFromCloudRelay().catch(() => null),
+  ]);
 
   // 1. If not on static GitHub Pages, try Server API (/api/catalog)
   if (!isStaticGitHubPagesHost()) {
