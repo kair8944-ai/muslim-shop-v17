@@ -571,6 +571,47 @@ app.post('/api/catalog/sync', async (req, res) => {
     } else if (action === 'saveSettings' && settings && typeof settings === 'object') {
       nextSettings = { ...nextSettings, ...settings };
       changed = true;
+    } else if (action === 'syncDelta' && req.body?.delta && typeof req.body.delta === 'object') {
+      const delta = req.body.delta;
+      const delProdSet = new Set<string>(Array.isArray(delta.deletedProductIds) ? delta.deletedProductIds : []);
+      if (delProdSet.size > 0) {
+        nextProducts = nextProducts.filter((p) => p && !delProdSet.has(p.id));
+        changed = true;
+      }
+      if (delta.upsertedProducts && typeof delta.upsertedProducts === 'object') {
+        for (const item of Object.values(delta.upsertedProducts) as any[]) {
+          if (!item || !item.id || delProdSet.has(item.id)) continue;
+          const idx = nextProducts.findIndex((p) => p.id === item.id);
+          if (idx >= 0) {
+            nextProducts[idx] = { ...nextProducts[idx], ...item };
+          } else {
+            nextProducts = [item, ...nextProducts];
+          }
+          changed = true;
+        }
+      }
+      const delCatSet = new Set<string>(Array.isArray(delta.deletedCategoryIds) ? delta.deletedCategoryIds : []);
+      if (delCatSet.size > 0) {
+        nextCategories = nextCategories.filter((c) => c && !delCatSet.has(c.id));
+        changed = true;
+      }
+      if (delta.upsertedCategories && typeof delta.upsertedCategories === 'object') {
+        for (const cat of Object.values(delta.upsertedCategories) as any[]) {
+          if (!cat || !cat.id || delCatSet.has(cat.id)) continue;
+          const idx = nextCategories.findIndex((c) => c.id === cat.id);
+          if (idx >= 0) {
+            nextCategories[idx] = { ...nextCategories[idx], ...cat };
+          } else {
+            nextCategories = [...nextCategories, cat];
+          }
+          changed = true;
+        }
+        nextCategories.sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99));
+      }
+      if (delta.settings && typeof delta.settings === 'object') {
+        nextSettings = { ...nextSettings, ...delta.settings };
+        changed = true;
+      }
     }
 
     if (changed) {

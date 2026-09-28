@@ -393,14 +393,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 {/* Stock badge */}
                 <div className="absolute top-3 left-3 flex flex-col gap-1.5">
-                  {!product.inStock ? (
+                  {!product.inStock && (
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-600 text-white shadow-xs flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                       {lang === 'kz' ? 'Қолда жоқ • Жақында' : 'Нет в наличии • Скоро будет'}
-                    </span>
-                  ) : (
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-700 text-white shadow-xs">
-                      100% Халяль
                     </span>
                   )}
                   {product.isHit && (

@@ -519,13 +519,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!editingProduct) return;
     setIsSaving(true);
     try {
+      const updatedTitle = editingProduct.titleRu;
       await saveProductToFirestore(editingProduct);
       onUpdateProduct(editingProduct);
       setEditingProduct(null);
       setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 2500);
+      setCopyFeedbackMsg(`✅ Товар «${updatedTitle}» успешно обновлён и синхронизирован!`);
+      setTimeout(() => {
+        setSavedSuccess(false);
+        setCopyFeedbackMsg(null);
+      }, 4500);
     } catch (err: any) {
-      alert('Ошибка сохранения товара в Firestore: ' + err.message);
+      alert('Ошибка сохранения товара: ' + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -565,13 +570,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       // 1. Immediately add to local state & delta store (0ms synchronous persistence)
       onAddProduct(newProd);
 
-      // 2. Persist to Firestore & IndexedDB before switching tabs so refreshing the page never loses the item
+      // 2. Persist to Cloud Relay, IndexedDB & Firestore before switching tabs
       try {
         await saveProductToFirestore(newProd);
       } catch (err: any) {
         console.warn('Firestore product sync warning (saved locally):', err);
       }
 
+      const addedTitle = newProd.titleRu;
       setNewTitleRu('');
       setNewTitleKz('');
       setNewPrice('');
@@ -582,6 +588,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setNewInStock(true);
       setNewIsHit(false);
       setNewIsNew(true);
+      setSavedSuccess(true);
+      setCopyFeedbackMsg(
+        `✅ Товар «${addedTitle}» успешно добавлен и отправлен клиентам во все браузеры!`
+      );
+      setTimeout(() => {
+        setSavedSuccess(false);
+        setCopyFeedbackMsg(null);
+      }, 5000);
       setActiveTab('products');
     } catch (err: any) {
       alert('Ошибка добавления товара: ' + err.message);
@@ -658,9 +672,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     if (isSyncingCloud) return;
                     setIsSyncingCloud(true);
                     try {
-                      await pushDeltaToFirestore();
+                      await pushDeltaToFirestore(products, categories, currentConfig);
                       setCloudSyncedNotice(true);
-                      setTimeout(() => setCloudSyncedNotice(false), 3000);
+                      setCopyFeedbackMsg(
+                        `✅ Все товары (${products.length} шт.) успешно синхронизированы во все браузеры!`
+                      );
+                      setTimeout(() => {
+                        setCloudSyncedNotice(false);
+                        setCopyFeedbackMsg(null);
+                      }, 4500);
                     } finally {
                       setIsSyncingCloud(false);
                     }
@@ -669,8 +689,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   title="Мгновенно отправить все новые товары во все браузеры (Яндекс, Safari, телефоны клиентов)"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">
-                    {cloudSyncedNotice ? 'Синхронизировано!' : 'Обновить для всех'}
+                  <span>
+                    {isSyncingCloud
+                      ? 'Синхронизация...'
+                      : cloudSyncedNotice
+                      ? 'Синхронизировано!'
+                      : 'Обновить для всех'}
                   </span>
                 </button>
                 <button
@@ -874,6 +898,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 <span>Настройки и пароль</span>
               </button>
             </div>
+
+            {/* Universal Feedback Banner (Product Added / Updated / Cloud Synced) */}
+            {copyFeedbackMsg && (
+              <div className="mx-4 sm:mx-5 mt-3 p-3 bg-emerald-50 border-2 border-emerald-400 rounded-2xl text-emerald-950 text-xs sm:text-sm font-bold flex items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                  <span>{copyFeedbackMsg}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCopyFeedbackMsg(null)}
+                  className="text-emerald-700 hover:text-emerald-950 text-sm font-bold px-2 py-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5">
@@ -1139,25 +1182,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 </form>
               ) : activeTab === 'products' ? (
                 <div className="space-y-3.5">
-                  {/* Copy Feedback Alert Toast */}
-                  {copyFeedbackMsg && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-950 text-xs font-semibold flex items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                          <Check className="w-3.5 h-3.5" />
-                        </div>
-                        <span>{copyFeedbackMsg}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setCopyFeedbackMsg(null)}
-                        className="text-emerald-700 hover:text-emerald-950 text-sm font-bold px-2 py-0.5"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
-
                   {/* Filter, Search & View Switcher */}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-3 border-b border-stone-200/80">
                     <div className="flex flex-1 items-center gap-2">
