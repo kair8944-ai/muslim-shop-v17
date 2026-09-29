@@ -641,6 +641,8 @@ app.post('/api/catalog/sync', async (req, res) => {
 });
 
 // Server-side Analytics Cache (fallback & cross-browser sync alongside Cloud Relay & Firestore)
+const ANALYTICS_SNAPSHOT_PATH = path.join(process.cwd(), 'public', 'analytics-snapshot.json');
+
 let serverAnalyticsState: Record<string, any> = {
   overview: { totalVisits: 0, uniqueVisitors: 0, pageViews: 0 },
   days: {},
@@ -648,9 +650,173 @@ let serverAnalyticsState: Record<string, any> = {
   updatedAt: new Date().toISOString(),
 };
 
+function saveAnalyticsSnapshotToDisk() {
+  try {
+    fs.mkdirSync(path.dirname(ANALYTICS_SNAPSHOT_PATH), { recursive: true });
+    fs.writeFileSync(ANALYTICS_SNAPSHOT_PATH, JSON.stringify(serverAnalyticsState));
+  } catch (e) {
+    console.warn('Could not persist analytics snapshot to disk:', e);
+  }
+}
+
+try {
+  if (fs.existsSync(ANALYTICS_SNAPSHOT_PATH)) {
+    const raw = fs.readFileSync(ANALYTICS_SNAPSHOT_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      serverAnalyticsState = {
+        overview: parsed.overview || { totalVisits: 0, uniqueVisitors: 0, pageViews: 0 },
+        days: parsed.days && typeof parsed.days === 'object' ? parsed.days : {},
+        recentVisits: Array.isArray(parsed.recentVisits) ? parsed.recentVisits : [],
+        updatedAt: parsed.updatedAt || new Date().toISOString(),
+      };
+    }
+  }
+} catch {}
+
+function toLocalDayKey(isoStr?: string): string {
+  if (!isoStr) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) return isoStr;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return String(isoStr).slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 app.get('/api/analytics', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ status: 'ok', analytics: serverAnalyticsState });
+});
+
+app.post('/api/analytics/event', (req, res) => {
+  try {
+    const {
+      type,
+      date,
+      visitItem,
+      visitorId,
+      isNewVisitor,
+      isNewSession,
+      device,
+      lang,
+      productId,
+      productTitle,
+    } = req.body || {};
+
+    const nowIso = new Date().toISOString();
+    const dKey = date || toLocalDayKey(nowIso);
+    const days = { ...(serverAnalyticsState.days || {}) };
+    const prevDay = days[dKey] || {
+      date: dKey,
+      totalVisits: 0,
+      uniqueVisitors: 0,
+      pageViews: 0,
+      mobileVisits: 0,
+      desktopVisits: 0,
+      ruVisits: 0,
+      kzVisits: 0,
+      productViews: {},
+      visitIds: [],
+      visitorIds: [],
+      updatedAt: nowIso,
+      resetToken: 0,
+    };
+
+    if (type === 'visit' && visitItem && visitItem.id) {
+      const visitSet = new Set<string>(Array.isArray(prevDay.visitIds) ? prevDay.visitIds : []);
+      const visitorSet = new Set<string>(Array.isArray(prevDay.visitorIds) ? prevDay.visitorIds : []);
+      const shortVid = String(visitorId || visitItem.visitorId || '').slice(-6);
+
+      const isBrandNewVisitId = !visitSet.has(visitItem.id);
+      const isBrandNewVisitorId = shortVid ? !visitorSet.has(shortVid) : Boolean(isNewVisitor);
+
+      visitSet.add(visitItem.id);
+      if (shortVid) visitorSet.add(shortVid);
+
+      const nextVisitIds = Array.from(visitSet).slice(-250);
+      const nextVisitorIds = Array.from(visitorSet).slice(-250);
+
+      const addVisit = isBrandNewVisitId || isNewSession ? 1 : 0;
+      const addUnique = isBrandNewVisitorId ? 1 : 0;
+
+      const nextTotalVisits = Math.max((Number(prevDay.totalVisits) || 0) + addVisit, nextVisitIds.length);
+      const nextUniqueVisitors = Math.min(
+        nextTotalVisits,
+        Math.max((Number(prevDay.uniqueVisitors) || 0) + addUnique, nextVisitorIds.length)
+      );
+
+      days[dKey] = {
+        ...prevDay,
+        date: dKey,
+        totalVisits: nextTotalVisits,
+        uniqueVisitors: nextUniqueVisitors,
+        pageViews: Math.max((Number(prevDay.pageViews) || 0) + 1, nextTotalVisits),
+        mobileVisits: (Number(prevDay.mobileVisits) || 0) + (device === 'mobile' ? addVisit : 0),
+        desktopVisits: (Number(prevDay.desktopVisits) || 0) + (device !== 'mobile' ? addVisit : 0),
+        ruVisits: (Number(prevDay.ruVisits) || 0) + (lang === 'kz' ? 0 : addVisit),
+        kzVisits: (Number(prevDay.kzVisits) || 0) + (lang === 'kz' ? addVisit : 0),
+        visitIds: nextVisitIds,
+        visitorIds: nextVisitorIds,
+        updatedAt: nowIso,
+      };
+
+      const visitMap = new Map<string, any>();
+      for (const v of [visitItem, ...(serverAnalyticsState.recentVisits || [])]) {
+        if (v && v.id) visitMap.set(v.id, v);
+      }
+      const recentVisits = Array.from(visitMap.values())
+        .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+        .slice(0, 35);
+
+      const sumVisits = Object.values(days).reduce((acc: number, d: any) => acc + (Number(d.totalVisits) || 0), 0);
+      const sumUniques = Object.values(days).reduce((acc: number, d: any) => acc + (Number(d.uniqueVisitors) || 0), 0);
+      const sumViews = Object.values(days).reduce((acc: number, d: any) => acc + (Number(d.pageViews) || 0), 0);
+
+      serverAnalyticsState = {
+        overview: {
+          totalVisits: Math.max((Number(serverAnalyticsState.overview?.totalVisits) || 0) + addVisit, sumVisits),
+          uniqueVisitors: Math.max((Number(serverAnalyticsState.overview?.uniqueVisitors) || 0) + addUnique, sumUniques),
+          pageViews: Math.max((Number(serverAnalyticsState.overview?.pageViews) || 0) + 1, sumViews),
+          lastVisitAt: nowIso,
+        },
+        days,
+        recentVisits,
+        updatedAt: nowIso,
+      };
+      saveAnalyticsSnapshotToDisk();
+    } else if (type === 'productView' && productId) {
+      const prodViews = { ...(prevDay.productViews || {}) };
+      const existingProd = prodViews[productId] || { title: productTitle || 'Товар', count: 0 };
+      prodViews[productId] = {
+        title: productTitle || existingProd.title || 'Товар',
+        count: (Number(existingProd.count) || 0) + 1,
+      };
+      days[dKey] = {
+        ...prevDay,
+        date: dKey,
+        pageViews: (Number(prevDay.pageViews) || 0) + 1,
+        productViews: prodViews,
+        updatedAt: nowIso,
+      };
+      serverAnalyticsState = {
+        ...serverAnalyticsState,
+        overview: {
+          ...serverAnalyticsState.overview,
+          pageViews: (Number(serverAnalyticsState.overview?.pageViews) || 0) + 1,
+          lastVisitAt: nowIso,
+        },
+        days,
+        updatedAt: nowIso,
+      };
+      saveAnalyticsSnapshotToDisk();
+    }
+
+    res.json({ status: 'ok', analytics: serverAnalyticsState });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Analytics event error' });
+  }
 });
 
 app.post('/api/analytics', (req, res) => {
@@ -658,34 +824,142 @@ app.post('/api/analytics', (req, res) => {
     const incoming = req.body?.analytics;
     if (incoming && typeof incoming === 'object') {
       const mergedDays: Record<string, any> = { ...(serverAnalyticsState.days || {}) };
+      const allIncomingVisits = Array.isArray(incoming.recentVisits) ? incoming.recentVisits : [];
+      const allLocalVisits = Array.isArray(serverAnalyticsState.recentVisits) ? serverAnalyticsState.recentVisits : [];
+
       if (incoming.days && typeof incoming.days === 'object') {
         for (const [dKey, rDay] of Object.entries(incoming.days as Record<string, any>)) {
           if (!rDay) continue;
           const lDay = mergedDays[dKey];
-          if (!lDay || (Number(rDay.resetToken) || 0) > (Number(lDay.resetToken) || 0)) {
-            mergedDays[dKey] = rDay;
-          } else if ((Number(lDay.resetToken) || 0) > (Number(rDay.resetToken) || 0)) {
-            mergedDays[dKey] = lDay;
+          const lReset = Number(lDay?.resetToken) || 0;
+          const rReset = Number(rDay?.resetToken) || 0;
+
+          if (!lDay || (rReset > lReset && Number(rDay.totalVisits) === 0)) {
+            mergedDays[dKey] = {
+              ...rDay,
+              visitIds: Array.isArray(rDay.visitIds) ? rDay.visitIds : [],
+              visitorIds: Array.isArray(rDay.visitorIds) ? rDay.visitorIds : [],
+              resetToken: Math.max(lReset, rReset),
+            };
           } else {
+            const effectiveReset = Math.max(lReset, rReset);
+            const rUpdatedMs = rDay.updatedAt ? new Date(rDay.updatedAt).getTime() : 0;
+
+            // If local was reset more recently AND incoming state is older than the reset, keep local
+            if (lReset > rReset && rUpdatedMs > 0 && rUpdatedMs < lReset) {
+              mergedDays[dKey] = lDay;
+              continue;
+            }
+
+            const localDayVisits = allLocalVisits.filter((v: any) => {
+              if (!v || toLocalDayKey(v.timestamp) !== dKey) return false;
+              const vMs = v.timestamp ? new Date(v.timestamp).getTime() : 0;
+              return !effectiveReset || vMs >= effectiveReset;
+            });
+            const remoteDayVisits = allIncomingVisits.filter((v: any) => {
+              if (!v || toLocalDayKey(v.timestamp) !== dKey) return false;
+              const vMs = v.timestamp ? new Date(v.timestamp).getTime() : 0;
+              return !effectiveReset || vMs >= effectiveReset;
+            });
+
+            const knownLocalVisitSet = new Set<string>([
+              ...(Array.isArray(lDay.visitIds) ? lDay.visitIds : []),
+              ...localDayVisits.map((v: any) => v.id).filter(Boolean),
+            ]);
+            const incomingRemoteVisitSet = new Set<string>([
+              ...(Array.isArray(rDay.visitIds) ? rDay.visitIds : []),
+              ...remoteDayVisits.map((v: any) => v.id).filter(Boolean),
+            ]);
+
+            let newVisitsDelta = 0;
+            for (const vid of incomingRemoteVisitSet) {
+              if (vid && !knownLocalVisitSet.has(vid)) newVisitsDelta++;
+            }
+
+            const knownLocalVisitorSet = new Set<string>([
+              ...(Array.isArray(lDay.visitorIds) ? lDay.visitorIds : []),
+              ...localDayVisits.map((v: any) => v.visitorId).filter(Boolean),
+            ]);
+            const incomingRemoteVisitorSet = new Set<string>([
+              ...(Array.isArray(rDay.visitorIds) ? rDay.visitorIds : []),
+              ...remoteDayVisits.map((v: any) => v.visitorId).filter(Boolean),
+            ]);
+
+            let newUniquesDelta = 0;
+            for (const uid of incomingRemoteVisitorSet) {
+              if (uid && !knownLocalVisitorSet.has(uid)) newUniquesDelta++;
+            }
+
+            const mergedVisitIds = Array.from(
+              new Set([...Array.from(knownLocalVisitSet), ...Array.from(incomingRemoteVisitSet)])
+            ).slice(-250);
+            const mergedVisitorIds = Array.from(
+              new Set([...Array.from(knownLocalVisitorSet), ...Array.from(incomingRemoteVisitorSet)])
+            ).slice(-250);
+
+            const mergedProdViews: Record<string, { title: string; count: number }> = {
+              ...(lDay.productViews || {}),
+            };
+            if (rDay.productViews && typeof rDay.productViews === 'object') {
+              for (const [pid, pInfo] of Object.entries(rDay.productViews as Record<string, any>)) {
+                if (!pInfo) continue;
+                const existing = mergedProdViews[pid];
+                mergedProdViews[pid] = {
+                  title: pInfo.title || existing?.title || 'Товар',
+                  count: Math.max(Number(existing?.count) || 0, Number(pInfo.count) || 0),
+                };
+              }
+            }
+
+            const nextTotalVisits = Math.max(
+              (Number(lDay.totalVisits) || 0) + newVisitsDelta,
+              Number(rDay.totalVisits) || 0,
+              mergedVisitIds.length
+            );
+            const nextUniqueVisitors = Math.min(
+              nextTotalVisits,
+              Math.max(
+                (Number(lDay.uniqueVisitors) || 0) + newUniquesDelta,
+                Number(rDay.uniqueVisitors) || 0,
+                mergedVisitorIds.length
+              )
+            );
+
             mergedDays[dKey] = {
               ...lDay,
               ...rDay,
-              totalVisits: Math.max(Number(lDay.totalVisits) || 0, Number(rDay.totalVisits) || 0),
-              uniqueVisitors: Math.max(Number(lDay.uniqueVisitors) || 0, Number(rDay.uniqueVisitors) || 0),
-              pageViews: Math.max(Number(lDay.pageViews) || 0, Number(rDay.pageViews) || 0),
+              date: dKey,
+              totalVisits: nextTotalVisits,
+              uniqueVisitors: nextUniqueVisitors,
+              pageViews: Math.max(
+                (Number(lDay.pageViews) || 0) + newVisitsDelta,
+                Number(rDay.pageViews) || 0,
+                nextTotalVisits
+              ),
               mobileVisits: Math.max(Number(lDay.mobileVisits) || 0, Number(rDay.mobileVisits) || 0),
               desktopVisits: Math.max(Number(lDay.desktopVisits) || 0, Number(rDay.desktopVisits) || 0),
               ruVisits: Math.max(Number(lDay.ruVisits) || 0, Number(rDay.ruVisits) || 0),
               kzVisits: Math.max(Number(lDay.kzVisits) || 0, Number(rDay.kzVisits) || 0),
-              productViews: { ...(lDay.productViews || {}), ...(rDay.productViews || {}) },
+              productViews: mergedProdViews,
+              visitIds: mergedVisitIds,
+              visitorIds: mergedVisitorIds,
+              resetToken: effectiveReset,
+              updatedAt: new Date().toISOString(),
             };
           }
         }
       }
 
       const visitMap = new Map<string, any>();
-      for (const v of [...(serverAnalyticsState.recentVisits || []), ...(incoming.recentVisits || [])]) {
-        if (v && v.id) visitMap.set(v.id, v);
+      for (const v of [...allLocalVisits, ...allIncomingVisits]) {
+        if (!v || !v.id) continue;
+        const vDate = toLocalDayKey(v.timestamp);
+        const dayObj = mergedDays[vDate];
+        if (dayObj?.resetToken && v.timestamp) {
+          const visitMs = new Date(v.timestamp).getTime();
+          if (!isNaN(visitMs) && visitMs < dayObj.resetToken) continue;
+        }
+        visitMap.set(v.id, v);
       }
       const recentVisits = Array.from(visitMap.values())
         .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
@@ -706,6 +980,7 @@ app.post('/api/analytics', (req, res) => {
         recentVisits,
         updatedAt: new Date().toISOString(),
       };
+      saveAnalyticsSnapshotToDisk();
     }
     res.json({ status: 'ok', analytics: serverAnalyticsState });
   } catch (err: any) {

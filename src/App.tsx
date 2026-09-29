@@ -18,6 +18,8 @@ import { QuickOrderModal } from './components/QuickOrderModal';
 import { FavoritesDrawer } from './components/FavoritesDrawer';
 import { AdminModal } from './components/AdminModal';
 import { Footer } from './components/Footer';
+import { BottomNav, BottomNavTab } from './components/BottomNav';
+import { CatalogDrawer } from './components/CatalogDrawer';
 import {
   MessageCircle,
   PhoneCall,
@@ -324,6 +326,7 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState<boolean>(false);
   const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
+  const [bottomDrawerMode, setBottomDrawerMode] = useState<'catalog' | 'contact' | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDirectProductLoading, setIsDirectProductLoading] = useState<boolean>(false);
 
@@ -785,7 +788,7 @@ export default function App() {
   return (
     <div
       id="app-root"
-      className={`min-h-screen w-full max-w-full overflow-x-hidden flex flex-col transition-colors ${
+      className={`min-h-screen w-full max-w-full overflow-x-hidden flex flex-col pb-16 sm:pb-[68px] transition-colors ${
         accessibility.highContrast
           ? 'bg-white text-black font-semibold selection:bg-amber-300 selection:text-black'
           : 'bg-[#FAF8F5] text-stone-900'
@@ -801,7 +804,7 @@ export default function App() {
       {toastMessage && (
         <div
           id="toast-notification"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-emerald-950 text-white px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-amber-400 text-xs sm:text-sm font-bold flex items-center gap-3 animate-bounce"
+          className="fixed bottom-20 sm:bottom-22 left-1/2 -translate-x-1/2 z-[100] bg-emerald-950 text-white px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-amber-400 text-xs sm:text-sm font-bold flex items-center gap-3 animate-bounce"
         >
           <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-4 h-4 text-white" />
@@ -968,8 +971,8 @@ export default function App() {
         )}
       </main>
 
-      {/* Floating Action Buttons for Mobile/Desktop: WhatsApp & Phone quick call */}
-      <div id="floating-actions" className="fixed bottom-5 right-5 z-40 flex flex-col gap-2.5">
+      {/* Floating Action Buttons for Desktop: WhatsApp & Phone quick call (above bottom nav) */}
+      <div id="floating-actions" className="hidden md:flex fixed bottom-22 right-5 z-40 flex-col gap-2.5">
         <a
           id="floating-whatsapp-btn"
           href={`https://wa.me/${config.whatsappNumber}?text=${encodeURIComponent(
@@ -1196,6 +1199,71 @@ export default function App() {
           onClose={() => setIsAdminOpen(false)}
         />
       )}
+
+      {/* 6. Bottom Sheet Drawer for Catalog & Contact */}
+      <CatalogDrawer
+        isOpen={bottomDrawerMode !== null}
+        mode={bottomDrawerMode || 'catalog'}
+        onClose={() => setBottomDrawerMode(null)}
+        categories={categories}
+        selectedCategoryId={selectedCategoryId}
+        onSelectCategory={(catId) => {
+          setSelectedCategoryId(catId);
+          setBottomDrawerMode(null);
+        }}
+        productCounts={productCounts}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        config={config}
+        lang={lang}
+      />
+
+      {/* 7. Fixed Bottom Navigation Bar (Главная • Каталог • Корзина • Избранное • Связь) */}
+      <BottomNav
+        activeTab={
+          (isCartOpen
+            ? 'cart'
+            : isFavoritesOpen
+            ? 'favorites'
+            : bottomDrawerMode === 'contact'
+            ? 'contact'
+            : bottomDrawerMode === 'catalog' || selectedCategoryId !== 'cat-all'
+            ? 'catalog'
+            : 'home') as BottomNavTab
+        }
+        lang={lang}
+        accessibility={accessibility}
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+        favoritesCount={favorites.length}
+        onSelectHome={() => {
+          setBottomDrawerMode(null);
+          setIsCartOpen(false);
+          setIsFavoritesOpen(false);
+          setSelectedCategoryId('cat-all');
+          setSearchQuery('');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onOpenCatalog={() => {
+          setIsCartOpen(false);
+          setIsFavoritesOpen(false);
+          setBottomDrawerMode((prev) => (prev === 'catalog' ? null : 'catalog'));
+        }}
+        onOpenCart={() => {
+          setBottomDrawerMode(null);
+          setIsFavoritesOpen(false);
+          setIsCartOpen((prev) => !prev);
+        }}
+        onOpenFavorites={() => {
+          setBottomDrawerMode(null);
+          setIsCartOpen(false);
+          setIsFavoritesOpen((prev) => !prev);
+        }}
+        onOpenContact={() => {
+          setIsCartOpen(false);
+          setIsFavoritesOpen(false);
+          setBottomDrawerMode((prev) => (prev === 'contact' ? null : 'contact'));
+        }}
+      />
     </div>
   );
 }
