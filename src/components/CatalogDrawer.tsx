@@ -12,16 +12,21 @@ import {
   ChevronRight,
   CheckCircle2,
 } from 'lucide-react';
-import { Category, Language, StoreConfig } from '../types';
+import { Category, Language, Product, StoreConfig } from '../types';
 import { isStoreOpen } from '../utils/formatters';
+import { SmartSearchBar } from './SmartSearchBar';
 
 interface CatalogDrawerProps {
   isOpen: boolean;
   mode: 'catalog' | 'contact';
   onClose: () => void;
+  products?: Product[];
   categories: Category[];
   selectedCategoryId: string;
   onSelectCategory: (id: string) => void;
+  onSelectSymptom?: (id: string) => void;
+  onOpenProduct?: (product: Product) => void;
+  onAddToCart?: (product: Product) => void;
   productCounts: Record<string, number>;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -33,9 +38,13 @@ export const CatalogDrawer: React.FC<CatalogDrawerProps> = ({
   isOpen,
   mode,
   onClose,
+  products = [],
   categories,
   selectedCategoryId,
   onSelectCategory,
+  onSelectSymptom,
+  onOpenProduct = () => {},
+  onAddToCart = () => {},
   productCounts,
   searchQuery,
   onSearchChange,
@@ -116,30 +125,29 @@ export const CatalogDrawer: React.FC<CatalogDrawerProps> = ({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-5 flex-1">
           {mode === 'catalog' ? (
             <>
-              {/* Quick Search inside Catalog Sheet */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder={
-                    isKz
-                      ? 'Өнімді іздеу (мысалы: қара зере, омега, бал)...'
-                      : 'Быстрый поиск товара (тмин, iHerb, коллаген, миск)...'
-                  }
-                  className="w-full pl-10 pr-20 py-3 text-sm rounded-2xl border border-stone-300 bg-white text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-800 shadow-2xs"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => onSearchChange('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-500 hover:text-stone-800 px-2 py-1 rounded-lg bg-stone-100 cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+              {/* Quick Search inside Catalog Sheet with Autocomplete */}
+              <SmartSearchBar
+                inputId="catalog-drawer-search-input"
+                searchQuery={searchQuery}
+                onSearchChange={onSearchChange}
+                products={products}
+                categories={categories}
+                productCounts={productCounts}
+                lang={lang}
+                onSelectCategory={(catId) => {
+                  handlePickCategory(catId);
+                }}
+                onSelectSymptom={(symId) => {
+                  if (onSelectSymptom) onSelectSymptom(symId);
+                  onClose();
+                }}
+                onOpenProduct={(prod) => {
+                  onClose();
+                  onOpenProduct(prod);
+                }}
+                onAddToCart={onAddToCart}
+                onAfterSelect={() => onClose()}
+              />
 
               {/* Special Quick Filters: Hits & New */}
               <div className="grid grid-cols-2 gap-2.5">

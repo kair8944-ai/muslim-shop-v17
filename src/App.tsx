@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   AccessibilitySettings,
   CartItem,
@@ -10,7 +10,9 @@ import {
 import { CATEGORIES, INITIAL_CONFIG } from './data/storeData';
 import { Header } from './components/Header';
 import { HeroBanner } from './components/HeroBanner';
+import { BoutiqueStories } from './components/BoutiqueStories';
 import { CategoryFilter } from './components/CategoryFilter';
+import { SymptomSelector } from './components/SymptomSelector';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
@@ -20,6 +22,9 @@ import { AdminModal } from './components/AdminModal';
 import { Footer } from './components/Footer';
 import { BottomNav, BottomNavTab } from './components/BottomNav';
 import { CatalogDrawer } from './components/CatalogDrawer';
+import { CartNotificationToast } from './components/CartNotificationToast';
+import { doesProductMatchSymptom, SYMPTOM_GOALS } from './utils/recommendations';
+import { scoreProductSearchMatch } from './utils/searchEngine';
 import {
   MessageCircle,
   PhoneCall,
@@ -318,6 +323,7 @@ export default function App() {
     }
   });
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedSymptom, setSelectedSymptom] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'popular' | 'priceAsc' | 'priceDesc'>('popular');
 
   // Modals state
@@ -328,6 +334,8 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
   const [bottomDrawerMode, setBottomDrawerMode] = useState<'catalog' | 'contact' | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [cartToastProduct, setCartToastProduct] = useState<Product | null>(null);
+  const cartToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDirectProductLoading, setIsDirectProductLoading] = useState<boolean>(false);
 
   // 1. Subscribe to Firestore & Universal Server Catalog Products with Deep Cache Reconciliation
@@ -660,12 +668,14 @@ export default function App() {
         return [...prev, { product, quantity: 1 }];
       }
     });
-    const pTitle = (lang === 'kz' && product.titleKz?.trim()) ? product.titleKz : product.titleRu;
-    showToast(
-      lang === 'kz'
-        ? `«${pTitle}» — өнім себетке жіберілді!`
-        : `«${pTitle}» — товар отправлен в корзину!`
-    );
+
+    if (cartToastTimerRef.current) {
+      clearTimeout(cartToastTimerRef.current);
+    }
+    setCartToastProduct(product);
+    cartToastTimerRef.current = setTimeout(() => {
+      setCartToastProduct(null);
+    }, 5000);
   };
 
   const handleUpdateQuantity = (productId: string, delta: number) => {
@@ -723,28 +733,34 @@ export default function App() {
     return counts;
   }, [products]);
 
+  const categoriesMap = useMemo(() => {
+    const map = new Map<string, Category>();
+    categories.forEach((c) => map.set(c.id, c));
+    return map;
+  }, [categories]);
+
   // Filtered and Sorted Products
   const filteredProducts = useMemo(() => {
+    const hasQuery = Boolean(searchQuery.trim());
     return products
       .filter((p) => {
         // Category filter
-        if (selectedCategoryId === 'cat-hits') return Boolean(p.isHit);
-        if (selectedCategoryId === 'cat-new') return Boolean(p.isNew);
-        if (selectedCategoryId !== 'cat-all' && p.categoryId !== selectedCategoryId) {
+        if (selectedCategoryId === 'cat-hits') {
+          if (!p.isHit) return false;
+        } else if (selectedCategoryId === 'cat-new') {
+          if (!p.isNew) return false;
+        } else if (selectedCategoryId !== 'cat-all' && p.categoryId !== selectedCategoryId) {
           return false;
         }
 
-        // Search query filter
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase().trim();
-          const matchTitle =
-            (p.titleRu && p.titleRu.toLowerCase().includes(q)) ||
-            (p.titleKz && p.titleKz.toLowerCase().includes(q));
-          const matchDesc =
-            (p.descriptionRu && p.descriptionRu.toLowerCase().includes(q)) ||
-            (p.descriptionKz && p.descriptionKz.toLowerCase().includes(q));
-          const matchSku = p.sku && p.sku.toLowerCase().includes(q);
-          return matchTitle || matchDesc || matchSku;
+        // Symptom / Health Goal filter
+        if (selectedSymptom !== 'all' && !doesProductMatchSymptom(p, selectedSymptom)) {
+          return false;
+        }
+
+        // Smart Search query filter (matches titles, categories, benefits, specs, SKU & synonyms)
+        if (hasQuery) {
+          return scoreProductSearchMatch(p, searchQuery, categoriesMap) > 0;
         }
 
         return true;
@@ -752,18 +768,25 @@ export default function App() {
       .sort((a, b) => {
         if (sortBy === 'priceAsc') return a.price - b.price;
         if (sortBy === 'priceDesc') return b.price - a.price;
-        
+
+        if (hasQuery) {
+          const scoreDiff =
+            scoreProductSearchMatch(b, searchQuery, categoriesMap) -
+            scoreProductSearchMatch(a, searchQuery, categoriesMap);
+          if (scoreDiff !== 0) return scoreDiff;
+        }
+
         // Default "popular" sorting:
         // 1. First priority: Hits of sales (isHit)
         if (a.isHit && !b.isHit) return -1;
         if (!a.isHit && b.isHit) return 1;
-        
+
         // 2. Second priority: Newest products first (by createdAt or ID timestamp)
         const timeA = a.createdAt || (a.id.startsWith('prod-') ? a.id.replace('prod-', '') : '');
         const timeB = b.createdAt || (b.id.startsWith('prod-') ? b.id.replace('prod-', '') : '');
         return timeB.localeCompare(timeA);
       });
-  }, [products, selectedCategoryId, searchQuery, sortBy]);
+  }, [products, selectedCategoryId, selectedSymptom, searchQuery, sortBy, categoriesMap]);
 
   const scrollToCatalog = () => {
     const el = document.getElementById('catalog-section');
@@ -833,6 +856,19 @@ export default function App() {
         onAccessibilityChange={setAccessibility}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        products={products}
+        categories={categories}
+        productCounts={productCounts}
+        onSelectCategory={(catId) => {
+          setSelectedCategoryId(catId);
+          setSelectedSymptom('all');
+        }}
+        onSelectSymptom={(symId) => {
+          setSelectedSymptom(symId);
+          setSelectedCategoryId('cat-all');
+        }}
+        onOpenProduct={handleOpenDetail}
+        onAddToCart={handleAddToCart}
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
         favoritesCount={favorites.length}
         onOpenCart={() => setIsCartOpen(true)}
@@ -847,17 +883,50 @@ export default function App() {
         onScrollToCatalog={scrollToCatalog}
         categories={categories}
         selectedCategoryId={selectedCategoryId}
-        onSelectCategory={setSelectedCategoryId}
+        onSelectCategory={(catId) => {
+          setSelectedCategoryId(catId);
+          setSelectedSymptom('all');
+        }}
+      />
+
+      {/* 8. Quick View Boutique Stories Bar right on the website */}
+      <BoutiqueStories
+        products={products}
+        config={config}
+        lang={lang}
+        onOpenProduct={handleOpenDetail}
+        onAddToCart={handleAddToCart}
+        onSelectCategory={(catId) => {
+          setSelectedCategoryId(catId);
+          setSelectedSymptom('all');
+        }}
       />
 
       {/* Category Nav Filter — All visible side-by-side without horizontal scrolling */}
       <CategoryFilter
         categories={categories}
         selectedCategoryId={selectedCategoryId}
-        onSelectCategory={setSelectedCategoryId}
+        onSelectCategory={(catId) => {
+          setSelectedCategoryId(catId);
+          setSelectedSymptom('all');
+        }}
         lang={lang}
         productCounts={productCounts}
         onOpenAdminCategories={() => setIsAdminOpen(true)}
+      />
+
+      {/* 2. Smart Product Selector by Symptom / Health Goal («Что вас беспокоит?») */}
+      <SymptomSelector
+        products={products}
+        selectedSymptom={selectedSymptom}
+        onSelectSymptom={(symId) => {
+          setSelectedSymptom(symId);
+          if (symId !== 'all') {
+            setSelectedCategoryId('cat-all');
+          }
+        }}
+        lang={lang}
+        accessibility={accessibility}
       />
 
       {/* Main Catalog Content */}
@@ -865,9 +934,13 @@ export default function App() {
         {/* Title & Sorting Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-stone-200">
           <div>
-            <h2 className="font-serif font-extrabold text-2xl sm:text-3xl text-emerald-950 flex items-center gap-2.5">
+            <h2 className="font-serif font-extrabold text-2xl sm:text-3xl text-emerald-950 flex items-center gap-2.5 flex-wrap">
               <span>
-                {categories.find((c) => c.id === selectedCategoryId)
+                {selectedSymptom !== 'all' && SYMPTOM_GOALS.find((g) => g.id === selectedSymptom)
+                  ? lang === 'kz'
+                    ? SYMPTOM_GOALS.find((g) => g.id === selectedSymptom)?.titleKz
+                    : SYMPTOM_GOALS.find((g) => g.id === selectedSymptom)?.titleRu
+                  : categories.find((c) => c.id === selectedCategoryId)
                   ? lang === 'kz' && categories.find((c) => c.id === selectedCategoryId)?.nameKz
                     ? categories.find((c) => c.id === selectedCategoryId)?.nameKz
                     : categories.find((c) => c.id === selectedCategoryId)?.nameRu
@@ -875,7 +948,7 @@ export default function App() {
                   ? 'Барлық өнімдер'
                   : 'Все товары'}
               </span>
-              <span className="text-xs font-sans px-2.5 py-0.5 rounded-full bg-stone-200 text-stone-700 font-bold">
+              <span className="text-xs font-mono tabular-nums px-2.5 py-0.5 rounded-md bg-stone-200 text-stone-800 font-bold">
                 {filteredProducts.length}
               </span>
             </h2>
@@ -927,6 +1000,7 @@ export default function App() {
               onClick={async () => {
                 setSearchQuery('');
                 setSelectedCategoryId('cat-all');
+                setSelectedSymptom('all');
                 if (products.length === 0) {
                   setIsLoadingProducts(true);
                   const cat = await fetchUniversalCatalog();
@@ -1043,6 +1117,7 @@ export default function App() {
       {selectedProductForDetail && (
         <ProductDetailModal
           product={selectedProductForDetail}
+          allProducts={products}
           config={config}
           lang={lang}
           onLanguageChange={setLang}
@@ -1051,6 +1126,8 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           onAddToCart={handleAddToCart}
           onQuickOrder={setSelectedProductForQuickOrder}
+          onSelectProduct={handleOpenDetail}
+          onOpenCart={() => setIsCartOpen(true)}
           onClose={handleCloseDetail}
         />
       )}
@@ -1065,18 +1142,34 @@ export default function App() {
         />
       )}
 
-      {/* 3. Cart Drawer with WhatsApp Order */}
+      {/* 3. Cart Drawer with WhatsApp Order & Recommendations */}
       {isCartOpen && (
         <CartDrawer
           items={cart}
+          allProducts={products}
           config={config}
           lang={lang}
           onUpdateQuantity={handleUpdateQuantity}
           onRemoveItem={handleRemoveFromCart}
+          onAddToCart={handleAddToCart}
+          onOpenDetail={handleOpenDetail}
           onClearCart={handleClearCart}
           onClose={() => setIsCartOpen(false)}
         />
       )}
+
+      {/* Rich Add-to-Cart Notification Toast */}
+      <CartNotificationToast
+        product={cartToastProduct}
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+        cartTotal={cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)}
+        lang={lang}
+        onOpenCart={() => {
+          setSelectedProductForDetail(null);
+          setIsCartOpen(true);
+        }}
+        onClose={() => setCartToastProduct(null)}
+      />
 
       {/* 4. Favorites Drawer */}
       {isFavoritesOpen && (
@@ -1205,12 +1298,21 @@ export default function App() {
         isOpen={bottomDrawerMode !== null}
         mode={bottomDrawerMode || 'catalog'}
         onClose={() => setBottomDrawerMode(null)}
+        products={products}
         categories={categories}
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={(catId) => {
           setSelectedCategoryId(catId);
+          setSelectedSymptom('all');
           setBottomDrawerMode(null);
         }}
+        onSelectSymptom={(symId) => {
+          setSelectedSymptom(symId);
+          setSelectedCategoryId('cat-all');
+          setBottomDrawerMode(null);
+        }}
+        onOpenProduct={handleOpenDetail}
+        onAddToCart={handleAddToCart}
         productCounts={productCounts}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}

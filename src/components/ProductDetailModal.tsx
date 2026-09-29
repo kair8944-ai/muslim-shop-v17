@@ -22,9 +22,12 @@ import {
   Check,
   Globe,
   Loader2,
+  Plus,
+  ArrowRight,
 } from 'lucide-react';
 import { AccessibilitySettings, Language, Product, StoreConfig } from '../types';
 import { formatPrice, getProductDirectUrl, copyTextToClipboard, shareOrCopyProduct } from '../utils/formatters';
+import { getFrequentlyBoughtTogether } from '../utils/recommendations';
 import {
   getProductKazakhTranslation,
   hasExplicitKazakhTranslation,
@@ -34,6 +37,7 @@ import {
 
 interface ProductDetailModalProps {
   product: Product;
+  allProducts?: Product[];
   config: StoreConfig;
   lang: Language;
   onLanguageChange?: (lang: Language) => void;
@@ -42,11 +46,14 @@ interface ProductDetailModalProps {
   onToggleFavorite: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   onQuickOrder: (product: Product) => void;
+  onSelectProduct?: (product: Product) => void;
+  onOpenCart?: () => void;
   onClose: () => void;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   product,
+  allProducts = [],
   config,
   lang,
   onLanguageChange,
@@ -55,6 +62,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onToggleFavorite,
   onAddToCart,
   onQuickOrder,
+  onSelectProduct,
+  onOpenCart,
   onClose,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -191,6 +200,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const dynamicLineHeight = `${(zoomLevel / 100) * 1.75}rem`;
 
   const isHighContrast = isHighContrastReader || accessibility.highContrast;
+
+  const recommendedProducts = React.useMemo(
+    () => getFrequentlyBoughtTogether(product, allProducts, [], 4),
+    [product, allProducts]
+  );
 
   const waDirectMessage = encodeURIComponent(
     !product.inStock
@@ -692,22 +706,34 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 {isAddedToCartFeedback && (
                   <div
                     id="modal-cart-success-banner"
-                    className="p-3 bg-emerald-50 border-2 border-emerald-500 rounded-2xl text-emerald-950 text-xs sm:text-sm font-bold flex items-center justify-between gap-3 shadow-md animate-in fade-in zoom-in-95 duration-200"
+                    className="p-3.5 bg-emerald-950 border-2 border-amber-400 rounded-2xl text-white text-xs sm:text-sm font-bold flex items-center justify-between gap-3 shadow-lg animate-in fade-in zoom-in-95 duration-200"
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                        <CheckCircle2 className="w-4 h-4 text-white" />
+                      <div className="w-8 h-8 rounded-full bg-emerald-500 text-stone-950 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                       </div>
                       <div>
-                        <p className="font-bold text-emerald-900 text-xs sm:text-sm">
-                          {isKz ? 'Өнім себетке жіберілді!' : 'Товар отправлен в корзину!'}
+                        <p className="font-extrabold text-amber-300 text-xs sm:text-sm">
+                          {isKz ? 'Өнім себетке қосылды!' : 'Товар добавлен в корзину!'}
                         </p>
-                        <p className="text-[11px] text-emerald-700 font-normal">
-                          {isKz ? 'Тапсырысты себеттен рәсімдеуге болады' : 'Вы можете перейти в корзину или продолжить выбор'}
+                        <p className="text-[11px] text-emerald-100 font-normal">
+                          {isKz ? 'Тапсырысты себеттен рәсімдеуге болады' : 'Отличный выбор! Перейдите к оформлению или продолжите покупки'}
                         </p>
                       </div>
                     </div>
-                    <span className="text-emerald-700 text-xs font-mono">✓</span>
+                    {onOpenCart && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenCart();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-stone-950 text-xs font-extrabold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                      >
+                        <span>{isKz ? 'Себетке' : 'В корзину'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -823,6 +849,83 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Frequently Bought Together Section inside Product Detail Modal */}
+          {recommendedProducts.length > 0 && (
+            <div
+              id="modal-frequently-bought-section"
+              className="pt-6 border-t border-stone-200"
+            >
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="font-serif font-extrabold text-base sm:text-lg text-emerald-950 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>
+                      {isKz ? 'Осы тауармен бірге жиі алады' : 'С этим товаром часто берут'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    {isKz
+                      ? 'Кешенді нәтиже үшін сатып алушылар қосымша таңдайтын өнімдер'
+                      : 'Рекомендуемые товары для комплексного приёма и лучшего результата'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {recommendedProducts.map((rec) => {
+                  const recTitle = isKz && rec.titleKz?.trim() ? rec.titleKz : rec.titleRu;
+                  return (
+                    <div
+                      key={rec.id}
+                      className="group rounded-2xl border border-stone-200/90 bg-stone-50/60 hover:bg-white hover:border-emerald-700/40 p-2.5 flex flex-col justify-between transition-all shadow-2xs"
+                    >
+                      <div
+                        onClick={() => {
+                          if (onSelectProduct) {
+                            setSelectedImageIndex(0);
+                            setActiveTab('desc');
+                            onSelectProduct(rec);
+                            if (scrollBodyRef.current) {
+                              scrollBodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
+                          }
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <div className="aspect-[4/3] rounded-xl overflow-hidden bg-stone-100 border border-stone-200/60 mb-2">
+                          <img
+                            src={rec.images[0]}
+                            alt={recTitle}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          />
+                        </div>
+                        <h4 className="text-xs font-bold text-stone-900 line-clamp-2 leading-snug group-hover:text-emerald-900">
+                          {recTitle}
+                        </h4>
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-stone-200/70 flex items-center justify-between gap-1.5">
+                        <span className="text-xs sm:text-sm font-extrabold text-emerald-950 font-mono tabular-nums">
+                          {formatPrice(rec.price)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onAddToCart(rec)}
+                          className="px-2.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-amber-400 text-white hover:text-stone-950 font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                          title={isKz ? 'Себетке қосу' : 'Добавить в корзину'}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isKz ? 'Қосу' : 'В корзину'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

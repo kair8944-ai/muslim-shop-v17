@@ -1,25 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Minus, Trash2, ShoppingBag, MessageCircle, MapPin, Truck, Check } from 'lucide-react';
-import { CartItem, DeliveryMethod, Language, StoreConfig } from '../types';
+import { X, Plus, Minus, Trash2, ShoppingBag, MessageCircle, MapPin, Truck, Check, Sparkles } from 'lucide-react';
+import { CartItem, DeliveryMethod, Language, Product, StoreConfig } from '../types';
 import { formatPrice, generateWhatsAppOrderUrl } from '../utils/formatters';
+import { getCartRecommendations } from '../utils/recommendations';
 
 interface CartDrawerProps {
   items: CartItem[];
+  allProducts?: Product[];
   config: StoreConfig;
   lang: Language;
   onUpdateQuantity: (productId: string, delta: number) => void;
   onRemoveItem: (productId: string) => void;
+  onAddToCart?: (product: Product) => void;
+  onOpenDetail?: (product: Product) => void;
   onClearCart: () => void;
   onClose: () => void;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   items,
+  allProducts = [],
   config,
   lang,
   onUpdateQuantity,
   onRemoveItem,
+  onAddToCart,
+  onOpenDetail,
   onClearCart,
   onClose,
 }) => {
@@ -45,6 +52,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   }, [onClose]);
 
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+
+  const cartRecommendations = useMemo(
+    () =>
+      getCartRecommendations(
+        items.map((i) => i.product),
+        allProducts,
+        3
+      ),
+    [items, allProducts]
+  );
 
   const handleWhatsAppCheckout = (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,6 +196,70 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </div>
                 );
               })}
+
+              {/* Frequently Bought Together inside Cart Drawer */}
+              {cartRecommendations.length > 0 && onAddToCart && (
+                <div
+                  id="cart-recommendations-box"
+                  className="pt-4 mt-4 border-t border-stone-200/90"
+                >
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                    <h4 className="text-xs sm:text-sm font-bold text-emerald-950">
+                      {lang === 'kz'
+                        ? 'Осы тауармен бірге жиі алады:'
+                        : 'С этим товаром часто берут:'}
+                    </h4>
+                  </div>
+
+                  <div className="space-y-2">
+                    {cartRecommendations.map((rec) => {
+                      const recTitle =
+                        lang === 'kz' && rec.titleKz?.trim() ? rec.titleKz : rec.titleRu;
+                      return (
+                        <div
+                          key={rec.id}
+                          className="p-2.5 rounded-2xl bg-amber-50/50 border border-amber-200/80 flex items-center justify-between gap-2.5 hover:bg-amber-50 transition-colors"
+                        >
+                          <div
+                            onClick={() => {
+                              if (onOpenDetail) {
+                                onClose();
+                                onOpenDetail(rec);
+                              }
+                            }}
+                            className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                          >
+                            <img
+                              src={rec.images[0]}
+                              alt={recTitle}
+                              referrerPolicy="no-referrer"
+                              className="w-11 h-13 rounded-xl object-cover border border-stone-200 bg-white shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-stone-900 truncate">
+                                {recTitle}
+                              </p>
+                              <p className="text-xs font-extrabold text-emerald-900 font-mono tabular-nums mt-0.5">
+                                {formatPrice(rec.price)}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => onAddToCart(rec)}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-950 hover:bg-amber-400 text-white hover:text-stone-950 text-xs font-bold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{lang === 'kz' ? 'Қосу' : 'В корзину'}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Checkout Form & Order Summary */}

@@ -12,9 +12,10 @@ import {
   SlidersHorizontal,
   Lock,
 } from 'lucide-react';
-import { AccessibilitySettings, Language, StoreConfig } from '../types';
+import { AccessibilitySettings, Category, Language, Product, StoreConfig } from '../types';
 import { isStoreOpen } from '../utils/formatters';
 import { AccessibilityModal } from './AccessibilityModal';
+import { SmartSearchBar } from './SmartSearchBar';
 
 interface HeaderProps {
   config: StoreConfig;
@@ -24,6 +25,13 @@ interface HeaderProps {
   onAccessibilityChange: (settings: AccessibilitySettings) => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  products?: Product[];
+  categories?: Category[];
+  productCounts?: Record<string, number>;
+  onSelectCategory?: (categoryId: string) => void;
+  onSelectSymptom?: (symptomId: string) => void;
+  onOpenProduct?: (product: Product) => void;
+  onAddToCart?: (product: Product) => void;
   cartCount: number;
   favoritesCount: number;
   onOpenCart: () => void;
@@ -39,6 +47,13 @@ export const Header: React.FC<HeaderProps> = ({
   onAccessibilityChange,
   searchQuery,
   onSearchChange,
+  products = [],
+  categories = [],
+  productCounts = {},
+  onSelectCategory = () => {},
+  onSelectSymptom,
+  onOpenProduct = () => {},
+  onAddToCart = () => {},
   cartCount,
   favoritesCount,
   onOpenCart,
@@ -73,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <header
         id="main-header"
-        className={`sticky top-0 z-40 w-full max-w-full overflow-x-hidden transition-colors ${
+        className={`sticky top-0 z-40 w-full max-w-full overflow-visible transition-colors ${
           accessibility.highContrast
             ? 'bg-white border-b-2 border-stone-900 shadow-md text-black'
             : 'bg-white/95 backdrop-blur-md border-b border-amber-900/10 shadow-xs'
@@ -263,7 +278,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Main Navigation Bar */}
-        <div id="main-nav-container" className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-3.5 flex items-center justify-between gap-1.5 sm:gap-4 w-full overflow-hidden">
+        <div id="main-nav-container" className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-3.5 flex items-center justify-between gap-1.5 sm:gap-4 w-full overflow-visible">
           {/* Boutique Brand */}
           <div id="boutique-brand" className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <div
@@ -292,32 +307,21 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Center Search Bar (Desktop) */}
-          <div id="header-search-bar" className="hidden md:flex flex-1 max-w-md mx-4 lg:mx-6 relative">
-            <div className="relative w-full">
-              <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                id="header-search-input"
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={
-                  isKz
-                    ? 'Өнімді немесе санатты іздеу (май, дәрумендер, миск)...'
-                    : 'Поиск товаров (тмин, iHerb, миск, коллаген, хиджама)...'
-                }
-                className="w-full pl-10 pr-9 py-2 text-sm rounded-xl border border-stone-200 bg-stone-50/80 text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 focus:bg-white transition-all shadow-2xs"
-              />
-              {searchQuery && (
-                <button
-                  id="clear-search-btn"
-                  onClick={() => onSearchChange('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+          {/* Center Search Bar with Autocomplete & Category/Keyword Search (Desktop) */}
+          <div id="header-search-bar" className="hidden md:flex flex-1 max-w-lg mx-4 lg:mx-6 relative">
+            <SmartSearchBar
+              inputId="header-search-input"
+              searchQuery={searchQuery}
+              onSearchChange={onSearchChange}
+              products={products}
+              categories={categories}
+              productCounts={productCounts}
+              lang={lang}
+              onSelectCategory={onSelectCategory}
+              onSelectSymptom={onSelectSymptom}
+              onOpenProduct={onOpenProduct}
+              onAddToCart={onAddToCart}
+            />
           </div>
 
           {/* Action Buttons: Accessibility Quick Switch, Search Toggle, WhatsApp, Favorites, Cart */}
@@ -415,31 +419,29 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Mobile Search Input Drawer */}
-        {isSearchOpen && (
-          <div id="mobile-search-container" className="md:hidden px-4 pb-3 pt-1 border-t border-stone-100 bg-white">
-            <div className="relative">
-              <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                id="mobile-search-input"
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={isKz ? 'Өнімдерді іздеу...' : 'Поиск товаров...'}
-                className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-stone-300 bg-stone-50 focus:outline-none focus:ring-2 focus:ring-emerald-700"
-                autoFocus
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => onSearchChange('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Mobile Search Bar with Autocomplete (Always easily accessible on mobile or when toggled) */}
+        <div
+          id="mobile-search-container"
+          className={`md:hidden px-3 pb-2.5 pt-1 border-t border-stone-100 bg-white ${
+            isSearchOpen ? 'block' : 'block'
+          }`}
+        >
+          <SmartSearchBar
+            inputId="mobile-search-input"
+            searchQuery={searchQuery}
+            onSearchChange={onSearchChange}
+            products={products}
+            categories={categories}
+            productCounts={productCounts}
+            lang={lang}
+            onSelectCategory={onSelectCategory}
+            onSelectSymptom={onSelectSymptom}
+            onOpenProduct={onOpenProduct}
+            onAddToCart={onAddToCart}
+            autoFocus={isSearchOpen}
+            onAfterSelect={() => setIsSearchOpen(false)}
+          />
+        </div>
       </header>
 
       {/* Accessible Settings Dialog for Elderly / Visually Impaired */}
