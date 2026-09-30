@@ -8,6 +8,7 @@ interface FavoritesDrawerProps {
   favorites: Product[];
   lang: Language;
   onRemoveFavorite: (product: Product) => void;
+  onClearFavorites?: () => void;
   onAddToCart: (product: Product) => void;
   onOpenDetail: (product: Product) => void;
   onClose: () => void;
@@ -17,6 +18,7 @@ export const FavoritesDrawer: React.FC<FavoritesDrawerProps> = ({
   favorites,
   lang,
   onRemoveFavorite,
+  onClearFavorites,
   onAddToCart,
   onOpenDetail,
   onClose,
@@ -94,63 +96,90 @@ export const FavoritesDrawer: React.FC<FavoritesDrawerProps> = ({
             </p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-4 divide-y divide-amber-500/15 space-y-3.5">
-            {favorites.map((product) => {
-              const title = lang === 'kz' && product.titleKz?.trim() ? product.titleKz : product.titleRu;
-              return (
-                <div
-                  key={product.id}
-                  className="pt-3.5 first:pt-0 rounded-2xl bg-[#081E16] p-3.5 border border-amber-500/20 space-y-3"
+          <div className="flex-1 overflow-y-auto overscroll-contain">
+            {onClearFavorites && (
+              <div className="px-4 pt-3.5 pb-2 flex items-center justify-between gap-2 border-b border-amber-500/15 bg-[#071C15]">
+                <span className="text-xs sm:text-sm font-bold text-amber-300">
+                  {lang === 'kz' ? 'Сақталған тауарлар:' : 'Сохранённые товары:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={onClearFavorites}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-700 text-rose-200 hover:text-white border border-rose-500/40 text-xs font-extrabold transition-colors cursor-pointer"
                 >
-                  <div className="flex items-start gap-3">
-                    <img
-                      src={product.images[0]}
-                      alt={`${title} — Витамины iHerb и БАДы в Атырау, Бутик №24`}
-                      onClick={() => {
-                        onOpenDetail(product);
-                        onClose();
-                      }}
-                      className="w-16 h-20 rounded-xl object-cover border border-amber-500/25 shrink-0 cursor-pointer bg-stone-900"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h4
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>{lang === 'kz' ? 'Бәрін өшіру' : 'Очистить всё'}</span>
+                </button>
+              </div>
+            )}
+            <div className="p-4 divide-y divide-amber-500/15 space-y-3.5">
+              {favorites.map((product) => {
+                const title = lang === 'kz' && product.titleKz?.trim() ? product.titleKz : product.titleRu;
+                return (
+                  <div
+                    key={product.id}
+                    className="pt-3.5 first:pt-0 rounded-2xl bg-[#081E16] p-3.5 border border-amber-500/20 space-y-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={product.images[0]}
+                        alt={`${title} — Витамины iHerb и БАДы в Атырау, Бутик №24`}
                         onClick={() => {
                           onOpenDetail(product);
                           onClose();
                         }}
-                        className="text-sm sm:text-base font-bold text-white leading-snug break-words cursor-pointer hover:text-amber-300"
+                        className="w-16 h-20 rounded-xl object-cover border border-amber-500/25 shrink-0 cursor-pointer bg-stone-900"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4
+                            onClick={() => {
+                              onOpenDetail(product);
+                              onClose();
+                            }}
+                            className="text-sm sm:text-base font-bold text-white leading-snug break-words cursor-pointer hover:text-amber-300"
+                          >
+                            {title}
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveFavorite(product)}
+                            className="p-2 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 transition-colors cursor-pointer shrink-0"
+                            title={lang === 'kz' ? 'Таңдаулыдан өшіру' : 'Удалить из избранного'}
+                          >
+                            <Trash2 className="w-4 h-4 text-rose-300" />
+                          </button>
+                        </div>
+                        <p className="text-base sm:text-lg font-extrabold text-amber-300 font-serif mt-1">
+                          {formatPrice(product.price)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-500/15">
+                      <button
+                        type="button"
+                        onClick={() => onAddToCart(product)}
+                        className="flex-1 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
                       >
-                        {title}
-                      </h4>
-                      <p className="text-base sm:text-lg font-extrabold text-amber-300 font-serif mt-1">
-                        {formatPrice(product.price)}
-                      </p>
+                        <ShoppingBag className="w-4 h-4 text-stone-950 shrink-0" />
+                        <span>{lang === 'kz' ? 'Себетке қосу' : 'В корзину'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onRemoveFavorite(product)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 font-extrabold text-xs sm:text-sm transition-colors cursor-pointer shrink-0"
+                        title={lang === 'kz' ? 'Таңдаулыдан өшіру' : 'Удалить из избранного'}
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-300 shrink-0" />
+                        <span>{lang === 'kz' ? 'Өшіру' : 'Удалить'}</span>
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-500/15">
-                    <button
-                      type="button"
-                      onClick={() => onAddToCart(product)}
-                      className="flex-1 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
-                    >
-                      <ShoppingBag className="w-4 h-4 text-stone-950 shrink-0" />
-                      <span>{lang === 'kz' ? 'Себетке қосу' : 'В корзину'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onRemoveFavorite(product)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 font-extrabold text-xs sm:text-sm transition-colors cursor-pointer shrink-0"
-                      title={lang === 'kz' ? 'Таңдаулыдан өшіру' : 'Удалить из избранного'}
-                    >
-                      <Trash2 className="w-4 h-4 text-rose-300 shrink-0" />
-                      <span>{lang === 'kz' ? 'Өшіру' : 'Удалить'}</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 

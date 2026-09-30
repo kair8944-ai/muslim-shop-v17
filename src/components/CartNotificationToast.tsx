@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, ShoppingBag, ArrowRight, X } from 'lucide-react';
+import { CheckCircle2, ShoppingBag, ArrowRight, X, Trash2 } from 'lucide-react';
 import { Language, Product } from '../types';
 import { formatPrice } from '../utils/formatters';
 
@@ -10,6 +10,7 @@ interface CartNotificationToastProps {
   cartTotal: number;
   lang: Language;
   onOpenCart: () => void;
+  onRemoveFromCart?: (productId: string) => void;
   onClose: () => void;
 }
 
@@ -19,6 +20,7 @@ export const CartNotificationToast: React.FC<CartNotificationToastProps> = ({
   cartTotal,
   lang,
   onOpenCart,
+  onRemoveFromCart,
   onClose,
 }) => {
   if (!product) return null;
@@ -48,14 +50,30 @@ export const CartNotificationToast: React.FC<CartNotificationToastProps> = ({
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-lg text-emerald-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            aria-label="Закрыть уведомление"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onRemoveFromCart && (
+              <button
+                type="button"
+                onClick={() => {
+                  onRemoveFromCart(product.id);
+                  onClose();
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 text-xs font-extrabold transition-colors cursor-pointer"
+                title={isKz ? 'Себеттен өшіру' : 'Удалить из корзины'}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+                <span>{isKz ? 'Өшіру' : 'Удалить'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded-lg text-emerald-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              aria-label="Закрыть уведомление"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Product Preview Row */}

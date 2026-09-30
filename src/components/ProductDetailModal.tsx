@@ -26,6 +26,7 @@ import {
   Plus,
   ArrowRight,
   ArrowLeft,
+  Trash2,
 } from 'lucide-react';
 import { AccessibilitySettings, Language, Product, StoreConfig } from '../types';
 import { formatPrice, getProductDirectUrl, copyTextToClipboard, shareOrCopyProduct } from '../utils/formatters';
@@ -45,8 +46,10 @@ interface ProductDetailModalProps {
   onLanguageChange?: (lang: Language) => void;
   accessibility: AccessibilitySettings;
   isFavorite: boolean;
+  cartQuantity?: number;
   onToggleFavorite: (product: Product) => void;
   onAddToCart: (product: Product) => void;
+  onRemoveFromCart?: (productId: string) => void;
   onQuickOrder: (product: Product) => void;
   onSelectProduct?: (product: Product) => void;
   onOpenCart?: () => void;
@@ -61,8 +64,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onLanguageChange,
   accessibility,
   isFavorite,
+  cartQuantity = 0,
   onToggleFavorite,
   onAddToCart,
+  onRemoveFromCart,
   onQuickOrder,
   onSelectProduct,
   onOpenCart,
@@ -811,27 +816,53 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 {/* Add to Cart button OR Out of Stock reservation info */}
                 {product.inStock ? (
-                  <button
-                    id="modal-add-cart-btn"
-                    onClick={handleAddToCartClick}
-                    className={`w-full px-5 py-4 rounded-xl font-extrabold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-lg ${
-                      isAddedToCartFeedback
-                        ? 'bg-emerald-500 text-stone-950 ring-2 ring-amber-300 scale-[1.01]'
-                        : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-stone-950'
-                    }`}
-                  >
-                    {isAddedToCartFeedback ? (
-                      <>
-                        <CheckCircle2 className="w-5 h-5 text-stone-950 animate-bounce" />
-                        <span>{isKz ? '✓ Өнім себетке жіберілді!' : '✓ Товар отправлен в корзину!'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingBag className="w-5 h-5 text-stone-950" />
-                        <span>{isKz ? 'Себетке қосу' : 'Добавить в корзину'}</span>
-                      </>
+                  <div className="space-y-2.5">
+                    <button
+                      id="modal-add-cart-btn"
+                      onClick={handleAddToCartClick}
+                      className={`w-full px-5 py-4 rounded-xl font-extrabold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-lg ${
+                        isAddedToCartFeedback
+                          ? 'bg-emerald-500 text-stone-950 ring-2 ring-amber-300 scale-[1.01]'
+                          : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-stone-950'
+                      }`}
+                    >
+                      {isAddedToCartFeedback ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-stone-950 animate-bounce" />
+                          <span>{isKz ? '✓ Өнім себетке жіберілді!' : '✓ Товар отправлен в корзину!'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShoppingBag className="w-5 h-5 text-stone-950" />
+                          <span>
+                            {cartQuantity > 0
+                              ? isKz
+                                ? `Себетте: ${cartQuantity} дана (+1 қосу)`
+                                : `В корзине: ${cartQuantity} шт. (+1 добавить)`
+                              : isKz
+                              ? 'Себетке қосу'
+                              : 'Добавить в корзину'}
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    {cartQuantity > 0 && onRemoveFromCart && (
+                      <button
+                        type="button"
+                        id="modal-remove-cart-btn"
+                        onClick={() => onRemoveFromCart(product.id)}
+                        className="w-full py-3 px-4 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-300 shrink-0" />
+                        <span>
+                          {isKz
+                            ? 'Тауарды себеттен өшіру'
+                            : 'Удалить товар из корзины'}
+                        </span>
+                      </button>
                     )}
-                  </button>
+                  </div>
                 ) : (
                   <div className="w-full p-4 rounded-xl bg-rose-950/70 border border-rose-500/40 text-center">
                     <p className="text-sm sm:text-base font-bold text-rose-200 flex items-center justify-center gap-2">

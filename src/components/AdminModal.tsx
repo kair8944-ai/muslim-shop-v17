@@ -388,12 +388,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setIsDeletingProduct(true);
     try {
       onDeleteProduct(product.id);
+      if (editingProduct?.id === product.id) {
+        setEditingProduct(null);
+      }
       try {
         await deleteProductFromFirestore(product.id);
       } catch (err: any) {
         console.warn('Firestore product delete warning:', err);
       }
       setProductToDelete(null);
+      setCopyFeedbackMsg(`🗑 Товар «${product.titleRu}» удален из каталога и базы данных`);
+      setTimeout(() => setCopyFeedbackMsg(null), 4000);
     } catch (err: any) {
       console.error('Error deleting product:', err);
     } finally {
@@ -945,17 +950,28 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* EDIT PRODUCT SUB-VIEW */}
               {editingProduct ? (
                 <form onSubmit={handleSaveEditedProduct} className="space-y-4 max-w-xl mx-auto">
-                  <div className="flex items-center justify-between pb-3 border-b border-stone-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-200">
                     <h4 className="font-bold text-stone-900 text-sm">
                       Редактирование: {editingProduct.titleRu}
                     </h4>
-                    <button
-                      type="button"
-                      onClick={() => setEditingProduct(null)}
-                      className="text-xs text-stone-500 hover:text-stone-800 underline"
-                    >
-                      Отмена
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(editingProduct)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Удалить этот товар из каталога"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>Удалить товар</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingProduct(null)}
+                        className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs transition-colors cursor-pointer"
+                      >
+                        Отмена
+                      </button>
+                    </div>
                   </div>
 
                   <div>
@@ -1130,20 +1146,38 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
 
                         <div className="flex-1 space-y-2">
-                          <label className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 cursor-pointer transition-colors shadow-xs active:scale-95">
-                            <Camera className="w-4 h-4" />
-                            <span>{isCompressingImage ? 'Обработка фото...' : 'Выбрать фото с телефона'}</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              disabled={isCompressingImage}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleImageFileUpload(file, 'edit');
-                              }}
-                            />
-                          </label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 cursor-pointer transition-colors shadow-xs active:scale-95">
+                              <Camera className="w-4 h-4" />
+                              <span>{isCompressingImage ? 'Обработка фото...' : 'Выбрать фото с телефона'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isCompressingImage}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleImageFileUpload(file, 'edit');
+                                }}
+                              />
+                            </label>
+                            {editingProduct.images?.[0] && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingProduct({
+                                    ...editingProduct,
+                                    images: [''],
+                                  })
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
+                                title="Удалить текущее фото товара"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>Удалить фото</span>
+                              </button>
+                            )}
+                          </div>
                           <p className="text-[11px] text-stone-500 leading-snug">
                             Сделайте фото на камеру или выберите из галереи телефона. Фото автоматически оптимизируется.
                           </p>
@@ -1200,21 +1234,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     />
                   </div>
 
-                  <div className="flex items-center gap-3 pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSaving}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white font-bold text-xs hover:bg-emerald-950 transition-colors flex items-center gap-1.5"
-                    >
-                      <Save className="w-4 h-4" />
-                      <span>{isSaving ? 'Сохранение...' : 'Сохранить изменения в Firestore'}</span>
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="submit"
+                        disabled={isSaving}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white font-bold text-xs hover:bg-emerald-950 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>{isSaving ? 'Сохранение...' : 'Сохранить изменения в Firestore'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingProduct(null)}
+                        className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-700 font-bold text-xs hover:bg-stone-50 cursor-pointer"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => setEditingProduct(null)}
-                      className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-700 font-bold text-xs hover:bg-stone-50"
+                      onClick={() => handleDelete(editingProduct)}
+                      className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
-                      Отмена
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                      <span>Удалить товар</span>
                     </button>
                   </div>
                 </form>
@@ -1345,6 +1390,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
                               </a>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(p)}
+                                className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 transition-colors cursor-pointer shrink-0"
+                                title="Удалить товар"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
 
                             {/* LARGE VISUAL IMAGE (9:16 Vertical Ratio) */}
@@ -1521,10 +1575,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(p)}
-                                  className="p-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                  className="py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0"
                                   title="Удалить товар из базы данных"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Удалить</span>
                                 </button>
                               </div>
                             </div>
@@ -1666,18 +1721,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                               <button
                                 onClick={() => setEditingProduct(p)}
-                                className="p-1.5 rounded-lg text-stone-500 hover:text-emerald-900 hover:bg-emerald-50 transition-colors"
+                                className="px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-emerald-50 text-stone-700 hover:text-emerald-900 font-bold text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                                 title="Редактировать товар"
                               >
-                                <Edit2 className="w-3.5 h-3.5" />
+                                <Edit2 className="w-3 h-3" />
+                                <span>Изменить</span>
                               </button>
 
                               <button
                                 onClick={() => handleDelete(p)}
-                                className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                                 title="Удалить из каталога"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3 shrink-0" />
+                                <span>Удалить</span>
                               </button>
                             </div>
                           </div>
@@ -1834,20 +1891,33 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
 
                         <div className="flex-1 space-y-2">
-                          <label className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 cursor-pointer transition-colors shadow-xs active:scale-95">
-                            <Camera className="w-4 h-4" />
-                            <span>{isCompressingImage ? 'Обработка фото...' : 'Выбрать фото с телефона'}</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              disabled={isCompressingImage}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleImageFileUpload(file, 'new');
-                              }}
-                            />
-                          </label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 cursor-pointer transition-colors shadow-xs active:scale-95">
+                              <Camera className="w-4 h-4" />
+                              <span>{isCompressingImage ? 'Обработка фото...' : 'Выбрать фото с телефона'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isCompressingImage}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleImageFileUpload(file, 'new');
+                                }}
+                              />
+                            </label>
+                            {newImageUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setNewImageUrl('')}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
+                                title="Удалить выбранное фото"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>Удалить фото</span>
+                              </button>
+                            )}
+                          </div>
                           <p className="text-[11px] text-stone-500 leading-snug">
                             Сделайте снимок на камеру или выберите фотографию из галереи телефона.
                           </p>
@@ -1895,14 +1965,36 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     />
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white font-bold text-xs hover:bg-emerald-950 transition-colors flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>{isSaving ? 'Сохранение...' : 'Добавить товар в Firestore'}</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="submit"
+                      disabled={isSaving}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white font-bold text-xs hover:bg-emerald-950 transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{isSaving ? 'Сохранение...' : 'Добавить товар в Firestore'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewTitleRu('');
+                        setNewTitleKz('');
+                        setNewPrice('');
+                        setNewOldPrice('');
+                        setNewDescRu('');
+                        setNewSpecsRu('');
+                        setNewImageUrl('');
+                        setNewInStock(true);
+                        setNewIsHit(false);
+                        setNewIsNew(true);
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                      <span>Очистить форму</span>
+                    </button>
+                  </div>
                 </form>
               ) : activeTab === 'settings' ? (
                 <form onSubmit={handleSaveConfig} className="space-y-4 max-w-xl mx-auto pb-8">
@@ -2546,27 +2638,29 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setEditingCategory(cat)}
-                                className="p-1.5 rounded-lg text-stone-500 hover:text-emerald-900 hover:bg-emerald-50 transition-colors"
-                                title="Редактировать название или иконку"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-
-                              {!isSystemAll && (
+                              <div className="flex items-center gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteCategoryClick(cat)}
-                                  className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                  title="Удалить каталог"
+                                  onClick={() => setEditingCategory(cat)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-stone-100 hover:bg-emerald-50 text-stone-700 hover:text-emerald-900 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Редактировать название или иконку"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                  <span>Изменить</span>
                                 </button>
-                              )}
-                            </div>
+
+                                {!isSystemAll && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCategoryClick(cat)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Удалить каталог"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                    <span>Удалить</span>
+                                  </button>
+                                )}
+                              </div>
                           </div>
                         );
                       })}
@@ -2583,6 +2677,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   currency={currentConfig.currency || '₸'}
                   onUpdateProduct={onUpdateProduct}
                   onBulkUpdateProducts={onBulkUpdateProducts}
+                  onDeleteProduct={(prod) => handleDelete(prod)}
                   onOpenStoriesForProduct={(prod) => {
                     setStoryProduct(prod);
                     setActiveTab('stories');

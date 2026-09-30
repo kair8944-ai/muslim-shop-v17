@@ -12,6 +12,7 @@ import {
   Square,
   Camera,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { Category, Product } from '../types';
 import { saveProductsBulkToFirestore } from '../services/firestoreService';
@@ -22,6 +23,7 @@ interface BulkPriceEditorTabProps {
   currency: string;
   onUpdateProduct: (product: Product) => void;
   onBulkUpdateProducts?: (updatedProducts: Product[]) => void;
+  onDeleteProduct?: (product: Product) => void;
   onOpenStoriesForProduct?: (product: Product) => void;
 }
 
@@ -39,6 +41,7 @@ export const BulkPriceEditorTab: React.FC<BulkPriceEditorTabProps> = ({
   currency,
   onUpdateProduct,
   onBulkUpdateProducts,
+  onDeleteProduct,
   onOpenStoriesForProduct,
 }) => {
   const [search, setSearch] = useState('');
@@ -564,6 +567,9 @@ export const BulkPriceEditorTab: React.FC<BulkPriceEditorTabProps> = ({
                 {onOpenStoriesForProduct && (
                   <th className="p-3 w-28 text-center">Stories</th>
                 )}
+                {onDeleteProduct && (
+                  <th className="p-3 w-28 text-center">Удаление</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -712,6 +718,20 @@ export const BulkPriceEditorTab: React.FC<BulkPriceEditorTabProps> = ({
                         >
                           <Camera className="w-3.5 h-3.5 text-amber-800" />
                           <span>Stories</span>
+                        </button>
+                      </td>
+                    )}
+
+                    {onDeleteProduct && (
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => onDeleteProduct(p)}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                          title="Удалить товар из каталога и базы данных"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>Удалить</span>
                         </button>
                       </td>
                     )}

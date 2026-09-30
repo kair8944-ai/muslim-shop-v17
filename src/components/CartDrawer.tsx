@@ -192,6 +192,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           <h4 className="text-sm sm:text-base font-bold text-white leading-snug break-words">
                             {title}
                           </h4>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveItem(item.product.id)}
+                            className="p-2 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 transition-colors cursor-pointer shrink-0 shadow-2xs"
+                            title={lang === 'kz' ? 'Тауарды себеттен өшіру' : 'Удалить товар из корзины'}
+                            aria-label={lang === 'kz' ? 'Тауарды себеттен өшіру' : 'Удалить товар из корзины'}
+                          >
+                            <Trash2 className="w-4 h-4 text-rose-300" />
+                          </button>
                         </div>
 
                         {!item.product.inStock && (

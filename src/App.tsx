@@ -899,8 +899,8 @@ export default function App() {
   };
 
   const handleUpdateQuantity = (productId: string, delta: number) => {
-    setCart((prev) =>
-      prev
+    setCart((prev) => {
+      const next = prev
         .map((item) => {
           if (item.product.id === productId) {
             const newQty = item.quantity + delta;
@@ -908,16 +908,39 @@ export default function App() {
           }
           return item;
         })
-        .filter(Boolean) as CartItem[]
-    );
+        .filter(Boolean) as CartItem[];
+      try {
+        localStorage.setItem('muslim_shop_cart', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   const handleRemoveFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
+    setCart((prev) => {
+      const next = prev.filter((item) => item.product.id !== productId);
+      try {
+        localStorage.setItem('muslim_shop_cart', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    showToast(
+      lang === 'kz'
+        ? 'Тауар себеттен өшірілді'
+        : 'Товар удален из корзины'
+    );
   };
 
   const handleClearCart = () => {
     setCart([]);
+    try {
+      localStorage.setItem('muslim_shop_cart', JSON.stringify([]));
+    } catch {}
+    showToast(
+      lang === 'kz'
+        ? 'Себет тазартылды'
+        : 'Корзина очищена'
+    );
   };
 
   // Favorites handlers
@@ -1401,6 +1424,7 @@ export default function App() {
                 onToggleFavorite={handleToggleFavorite}
                 onToggleCompare={handleToggleCompare}
                 onAddToCart={handleAddToCart}
+                onRemoveFromCart={handleRemoveFromCart}
                 onOpenDetail={handleOpenDetail}
                 onQuickOrder={setSelectedProductForQuickOrder}
                 onShareFeedback={showToast}
@@ -1478,8 +1502,12 @@ export default function App() {
           onLanguageChange={setLang}
           accessibility={accessibility}
           isFavorite={favorites.some((f) => f.id === selectedProductForDetail.id)}
+          cartQuantity={
+            cart.find((c) => c.product.id === selectedProductForDetail.id)?.quantity || 0
+          }
           onToggleFavorite={handleToggleFavorite}
           onAddToCart={handleAddToCart}
+          onRemoveFromCart={handleRemoveFromCart}
           onQuickOrder={setSelectedProductForQuickOrder}
           onSelectProduct={handleOpenDetail}
           onOpenCart={() => setIsCartOpen(true)}
@@ -1523,6 +1551,7 @@ export default function App() {
           setSelectedProductForDetail(null);
           setIsCartOpen(true);
         }}
+        onRemoveFromCart={handleRemoveFromCart}
         onClose={() => setCartToastProduct(null)}
       />
 
@@ -1564,6 +1593,13 @@ export default function App() {
           favorites={favorites}
           lang={lang}
           onRemoveFavorite={handleToggleFavorite}
+          onClearFavorites={() => {
+            setFavorites([]);
+            try {
+              localStorage.setItem('muslim_shop_favorites', JSON.stringify([]));
+            } catch {}
+            showToast(lang === 'kz' ? 'Таңдаулылар тазартылды' : 'Избранное очищено');
+          }}
           onAddToCart={handleAddToCart}
           onOpenDetail={handleOpenDetail}
           onClose={() => setIsFavoritesOpen(false)}
@@ -1629,6 +1665,21 @@ export default function App() {
               saveProductsToLocalStorageCache(next);
               return next;
             });
+            setCart((prev) => {
+              const next = prev.filter((item) => item.product.id !== deletedId);
+              try {
+                localStorage.setItem('muslim_shop_cart', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+            setFavorites((prev) => {
+              const next = prev.filter((p) => p.id !== deletedId);
+              try {
+                localStorage.setItem('muslim_shop_favorites', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+            setCompareList((prev) => prev.filter((p) => p.id !== deletedId));
             showToast(lang === 'kz' ? 'Өнім жойылды' : 'Товар удален из каталога');
           }}
           onPreviewProduct={handleOpenDetail}

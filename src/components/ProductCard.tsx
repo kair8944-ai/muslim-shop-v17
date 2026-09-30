@@ -10,6 +10,7 @@ import {
   Share2,
   Check,
   ArrowLeftRight,
+  Trash2,
 } from 'lucide-react';
 import { AccessibilitySettings, Language, Product } from '../types';
 import { formatPrice, shareOrCopyProduct } from '../utils/formatters';
@@ -24,6 +25,7 @@ interface ProductCardProps {
   onToggleFavorite: (product: Product) => void;
   onToggleCompare?: (product: Product) => void;
   onAddToCart: (product: Product) => void;
+  onRemoveFromCart?: (productId: string) => void;
   onOpenDetail: (product: Product) => void;
   onQuickOrder: (product: Product) => void;
   onShareFeedback?: (message: string) => void;
@@ -38,6 +40,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onToggleFavorite,
   onToggleCompare,
   onAddToCart,
+  onRemoveFromCart,
   onOpenDetail,
   onQuickOrder,
   onShareFeedback,
@@ -222,43 +225,61 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <div className="flex flex-col gap-2">
           {/* Primary Add to Cart or Pre-Order Button */}
           {product.inStock ? (
-            <button
-              id={`add-to-cart-${product.id}`}
-              onClick={() => {
-                onAddToCart(product);
-                setIsJustAdded(true);
-                setTimeout(() => setIsJustAdded(false), 1800);
-              }}
-              className={`w-full py-2.5 sm:py-3 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-98 shadow-md ${
-                isJustAdded
-                  ? 'bg-emerald-500 text-stone-950 ring-2 ring-amber-300'
-                  : isInCart
-                  ? 'bg-[#12382B] hover:bg-[#174636] text-amber-300 border border-amber-400/50'
-                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-stone-950 shadow-amber-500/15'
-              }`}
-            >
-              {isJustAdded ? (
-                <>
-                  <Check className="w-4 h-4 text-stone-950 stroke-[2.5] shrink-0" />
-                  <span className="truncate">
-                    {lang === 'kz' ? 'Себетке қосылды!' : 'Добавлено!'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <ShoppingBag className="w-4 h-4 shrink-0" />
-                  <span className="truncate">
-                    {isInCart
-                      ? lang === 'kz'
-                        ? 'Себетте (+1 қосу)'
-                        : 'В корзине (+1)'
-                      : lang === 'kz'
-                      ? 'Себетке қосу'
-                      : 'В корзину'}
-                  </span>
-                </>
+            <div className="flex items-center gap-1.5">
+              <button
+                id={`add-to-cart-${product.id}`}
+                onClick={() => {
+                  onAddToCart(product);
+                  setIsJustAdded(true);
+                  setTimeout(() => setIsJustAdded(false), 1800);
+                }}
+                className={`flex-1 min-w-0 py-2.5 sm:py-3 px-2.5 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-98 shadow-md ${
+                  isJustAdded
+                    ? 'bg-emerald-500 text-stone-950 ring-2 ring-amber-300'
+                    : isInCart
+                    ? 'bg-[#12382B] hover:bg-[#174636] text-amber-300 border border-amber-400/50'
+                    : 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-stone-950 shadow-amber-500/15'
+                }`}
+              >
+                {isJustAdded ? (
+                  <>
+                    <Check className="w-4 h-4 text-stone-950 stroke-[2.5] shrink-0" />
+                    <span className="truncate">
+                      {lang === 'kz' ? 'Себетке қосылды!' : 'Добавлено!'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <ShoppingBag className="w-4 h-4 shrink-0" />
+                    <span className="truncate">
+                      {isInCart
+                        ? lang === 'kz'
+                          ? 'Себетте (+1)'
+                          : 'В корзине (+1)'
+                        : lang === 'kz'
+                        ? 'Себетке қосу'
+                        : 'В корзину'}
+                    </span>
+                  </>
+                )}
+              </button>
+
+              {isInCart && onRemoveFromCart && (
+                <button
+                  type="button"
+                  id={`card-remove-cart-${product.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveFromCart(product.id);
+                  }}
+                  className="py-2.5 sm:py-3 px-2.5 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 font-extrabold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0 shadow-xs"
+                  title={lang === 'kz' ? 'Себеттен өшіру' : 'Удалить из корзины'}
+                >
+                  <Trash2 className="w-4 h-4 text-rose-300 shrink-0" />
+                  <span className="hidden sm:inline">{lang === 'kz' ? 'Өшіру' : 'Удалить'}</span>
+                </button>
               )}
-            </button>
+            </div>
           ) : (
             <button
               id={`preorder-btn-${product.id}`}
