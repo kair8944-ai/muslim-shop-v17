@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { motion } from 'motion/react';
 import {
   X,
   Maximize2,
@@ -75,6 +76,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [isHighContrastReader, setIsHighContrastReader] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
   const [isAddedToCartFeedback, setIsAddedToCartFeedback] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleAnimatedClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 170);
+  }, [onClose]);
 
   // Active language inside modal (synchronized with store language)
   const [currentLang, setCurrentLang] = useState<Language>(lang);
@@ -147,7 +156,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        handleAnimatedClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -156,7 +165,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose]);
+  }, [handleAnimatedClose]);
 
   const handleAddToCartClick = () => {
     onAddToCart(product);
@@ -217,16 +226,26 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   );
 
   const modalElement = (
-    <div
+    <motion.div
       ref={backdropRef}
       id="product-modal-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: isClosing ? 0 : 1 }}
+      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       className="fixed inset-0 z-[100] bg-stone-950/85 backdrop-blur-xs flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto overscroll-contain"
-      onClick={onClose}
+      onClick={handleAnimatedClose}
     >
-      <div
+      <motion.div
         id="product-modal-container"
+        initial={{ opacity: 0, scale: 0.94, y: 14 }}
+        animate={{
+          opacity: isClosing ? 0 : 1,
+          scale: isClosing ? 0.96 : 1,
+          y: isClosing ? 10 : 0,
+        }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         onClick={(e) => e.stopPropagation()}
-        className={`bg-white transition-all overflow-hidden flex flex-col ${
+        className={`bg-white overflow-hidden flex flex-col will-change-transform ${
           isFullscreen
             ? 'fixed inset-0 w-full h-full rounded-none z-[110]'
             : 'w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-4xl sm:rounded-3xl shadow-2xl my-0 sm:my-auto'
@@ -378,7 +397,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
             <button
               id="close-modal-btn"
-              onClick={onClose}
+              onClick={handleAnimatedClose}
               className="p-1.5 rounded-lg bg-emerald-900/90 hover:bg-rose-700 text-white transition-colors cursor-pointer"
               title="Закрыть"
             >
@@ -927,8 +946,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 
   return createPortal(modalElement, document.body);
