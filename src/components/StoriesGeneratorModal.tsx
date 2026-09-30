@@ -12,9 +12,20 @@ import {
   X,
   Image as ImageIcon,
   RefreshCw,
+  MapPin,
+  ShieldCheck,
+  Truck,
+  Link,
 } from 'lucide-react';
 import { Category, Product, StoreConfig } from '../types';
 import { copyTextToClipboard, getProductDirectUrl } from '../utils/formatters';
+import {
+  renderProductStoryHd,
+  renderInfoStoryHd,
+  triggerDataUrlDownload,
+  shareOrDownloadStoryResult,
+  InfoStoryCardSpec,
+} from '../utils/storyCanvasRenderer';
 
 function formatPhoneDisplay(raw: string): string {
   const digits = (raw || '').replace(/\D/g, '');
@@ -207,6 +218,13 @@ export const StoriesGeneratorModal: React.FC<StoriesGeneratorProps> = ({
   const [copiedCaption, setCopiedCaption] = useState<boolean>(false);
   const [downloadedSuccess, setDownloadedSuccess] = useState<boolean>(false);
 
+  // Showcase of rotating ready-to-download HD stories
+  const [showcaseSeed, setShowcaseSeed] = useState<number>(() => Math.floor(Math.random() * 10000));
+  const [busyCardId, setBusyCardId] = useState<string | null>(null);
+  const [savedCardId, setSavedCardId] = useState<string | null>(null);
+  const [copiedLinkCardId, setCopiedLinkCardId] = useState<string | null>(null);
+  const customEditorRef = useRef<HTMLDivElement | null>(null);
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -250,6 +268,126 @@ export const StoriesGeneratorModal: React.FC<StoriesGeneratorProps> = ({
     () => STORY_THEMES.find((t) => t.id === themeId) || STORY_THEMES[0],
     [themeId]
   );
+
+  // 6 Rotating Showcase Products for instant 1-click HD Story download
+  const showcaseProducts = useMemo(() => {
+    const pool = products.filter((p) => p.inStock && p.images && p.images[0]);
+    if (pool.length <= 6) return pool;
+    const shuffled = [...pool].sort((a, b) => {
+      const hashA =
+        ((a.id.charCodeAt(a.id.length - 1) || 1) * 37 +
+          (a.price % 97) +
+          showcaseSeed * 19) %
+        101;
+      const hashB =
+        ((b.id.charCodeAt(b.id.length - 1) || 1) * 37 +
+          (b.price % 97) +
+          showcaseSeed * 19) %
+        101;
+      return hashA - hashB;
+    });
+    return shuffled.slice(0, 6);
+  }, [products, showcaseSeed]);
+
+  // 3 Branded Boutique Informational Stories
+  const boutiqueInfoSpecs: InfoStoryCardSpec[] = useMemo(
+    () => [
+      {
+        id: 'location-dina-24',
+        badge: 'БУТИК №24 • АТЫРАУ',
+        title: 'Ждём вас в ТД «Дина Байзар», Бутик №24',
+        subtitle:
+          'Приходите лично выбрать витамины iHerb, натуральный мёд, масла и восточные миски с профессиональной консультацией.',
+        bullets: [
+          `📍 Адрес: ${config.address || 'г. Атырау, ТД «Дина Байзар», Бутик №24'}`,
+          `🕙 График: ${config.workingHoursRu || 'Ежедневно с 10:00 до 19:00'}`,
+          '🅿️ Быстрая выдача онлайн-заказов без очереди',
+          '💳 Оплата Kaspi QR / Kaspi Gold / Наличными',
+        ],
+      },
+      {
+        id: 'authentic-halal',
+        badge: 'ГАРАНТИЯ КАЧЕСТВА',
+        title: '100% Оригинал iHerb и строгий стандарт Халяль',
+        subtitle:
+          'Мы дорожим доверием каждой семьи в Атырау и отбираем только проверенные добавки и натуральные средства.',
+        bullets: [
+          '✅ Прямые поставки оригинальных брендов США (Now Foods, Solgar, California Gold)',
+          '✅ Чистый состав без запрещённого желатина и сомнительных добавок',
+          '✅ Строгий контроль сроков годности и правильное хранение в бутике',
+          '✅ Поможем подобрать дозировку для взрослых и детей',
+        ],
+      },
+      {
+        id: 'fast-delivery',
+        badge: 'ДОСТАВКА В ДЕНЬ ЗАКАЗА',
+        title: 'Быстрая доставка по Атырау и отправка по всему Казахстану',
+        subtitle:
+          'Не нужно ждать посылку из-за рубежа 3 недели — всё уже в наличии в Бутике №24!',
+        bullets: [
+          '🚀 Курьер по г. Атырау — отправим сразу после подтверждения заказа',
+          '🛍️ Самовывоз из Бутика №24 — соберём ваш пакет заранее к вашему приезду',
+          '📦 Отправка по РК — Казпочта, СДЭК, Индрайвер в любой город и район',
+          '💬 Заказ в 1 клик через сайт muslimshop.kz или напрямую в WhatsApp',
+        ],
+      },
+    ],
+    [config.address, config.workingHoursRu]
+  );
+
+  const handleQuickProductStoryAction = async (
+    prod: Product,
+    mode: 'download' | 'share'
+  ) => {
+    if (busyCardId) return;
+    setBusyCardId(prod.id);
+    try {
+      const badge = prod.isHit
+        ? '🔥 ХИТ ПРОДАЖ БУТИКА №24'
+        : prod.isNew
+        ? '✨ СВЕЖЕЕ ПОСТУПЛЕНИЕ • В НАЛИЧИИ'
+        : '🌿 100% ОРИГИНАЛ И ХАЛЯЛЬ';
+      const res = await renderProductStoryHd({
+        product: prod,
+        config,
+        categories,
+        badgeText: badge,
+      });
+      if (mode === 'share') {
+        await shareOrDownloadStoryResult(res, prod.titleRu, prod);
+      } else {
+        triggerDataUrlDownload(res.dataUrl, res.filename);
+      }
+      setSavedCardId(prod.id);
+      setTimeout(() => {
+        setSavedCardId((curr) => (curr === prod.id ? null : curr));
+      }, 3000);
+    } finally {
+      setBusyCardId(null);
+    }
+  };
+
+  const handleQuickInfoStoryAction = async (
+    spec: InfoStoryCardSpec,
+    mode: 'download' | 'share'
+  ) => {
+    if (busyCardId) return;
+    setBusyCardId(spec.id);
+    try {
+      const res = await renderInfoStoryHd({ spec, config });
+      if (mode === 'share') {
+        await shareOrDownloadStoryResult(res, spec.title);
+      } else {
+        triggerDataUrlDownload(res.dataUrl, res.filename);
+      }
+      setSavedCardId(spec.id);
+      setTimeout(() => {
+        setSavedCardId((curr) => (curr === spec.id ? null : curr));
+      }, 3000);
+    } finally {
+      setBusyCardId(null);
+    }
+  };
 
   // Extract up to 3 crisp benefits from product data or description
   const productHighlights = useMemo(() => {
@@ -664,7 +802,253 @@ export const StoriesGeneratorModal: React.FC<StoriesGeneratorProps> = ({
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {/* NEW: ROTATING SHOWCASE OF READY-TO-DOWNLOAD HD STORIES */}
+      <div
+        id="admin-rotating-stories-showcase"
+        className="bg-gradient-to-b from-[#041E16] via-[#06261C] to-[#041812] rounded-3xl p-4 sm:p-6 border-2 border-amber-400/40 shadow-xl space-y-5 text-white"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-amber-400/20">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[11px] font-extrabold mb-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Full HD 1080×1920 • Качество без сжатия</span>
+            </div>
+            <h4 className="font-serif font-extrabold text-base sm:text-xl text-white">
+              Витрина меняющихся Сторис (Скачивание в 1 клик)
+            </h4>
+            <p className="text-xs sm:text-sm text-emerald-200/85 mt-0.5">
+              Нажмите «Показать другие товары», чтобы перемешать подборку, и скачайте понравившийся сторис в HD для Instagram или WhatsApp Status
+            </p>
+          </div>
+
+          <button
+            type="button"
+            id="admin-shuffle-stories-btn"
+            onClick={() => setShowcaseSeed((s) => s + 1)}
+            className="px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+          >
+            <RefreshCw className="w-4 h-4 text-stone-950 shrink-0" />
+            <span>Показать другие товары (Перемешать)</span>
+          </button>
+        </div>
+
+        {/* 6 Rotating Product Story Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {showcaseProducts.map((prod) => {
+            const isBusy = busyCardId === prod.id;
+            const isSaved = savedCardId === prod.id;
+            const isLinkCopied = copiedLinkCardId === prod.id;
+            const badge = prod.isHit
+              ? '🔥 Хит продаж №24'
+              : prod.isNew
+              ? '✨ Свежее поступление'
+              : '🌿 100% Оригинал & Халяль';
+
+            return (
+              <div
+                key={prod.id}
+                className="rounded-2xl bg-[#07241B] border border-amber-400/30 hover:border-amber-400/70 p-3.5 flex flex-col justify-between gap-3 shadow-lg transition-all"
+              >
+                {/* Visual 9:16-inspired Story Card Preview */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-1.5 text-[11px]">
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-stone-950 font-black">
+                      {badge}
+                    </span>
+                    <span className="font-mono text-emerald-200/80">Арт: {prod.sku}</span>
+                  </div>
+
+                  <div
+                    onClick={() => {
+                      setSelectedProductId(prod.id);
+                      customEditorRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="relative aspect-[4/4] w-full rounded-2xl overflow-hidden bg-stone-900 border-2 border-amber-400/40 cursor-pointer group"
+                    title="Нажмите, чтобы открыть этот товар в детальном конструкторе ниже"
+                  >
+                    <img
+                      src={prod.images[0]}
+                      alt={prod.titleRu}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-stone-950 via-stone-950/80 to-transparent flex items-end justify-between gap-2">
+                      <span className="text-[11px] font-bold text-emerald-300">
+                        ✓ В наличии в №24
+                      </span>
+                      <span className="px-2.5 py-1 rounded-xl bg-amber-400 text-stone-950 font-black text-xs sm:text-sm shadow-md">
+                        {prod.price.toLocaleString('ru-RU')} {config.currency || '₸'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="font-serif font-bold text-sm sm:text-base text-white line-clamp-2 leading-snug">
+                      {prod.titleRu}
+                    </h5>
+                    <p className="text-[11px] text-emerald-200/75 line-clamp-2 mt-1">
+                      {prod.descriptionRu}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Instant HD Download & Share Actions */}
+                <div className="space-y-2 pt-2 border-t border-amber-500/20">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleQuickProductStoryAction(prod, 'download')}
+                      className="py-2.5 px-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                      title="Скачать готовую картинку 1080×1920 в высоком качестве PNG"
+                    >
+                      {isSaved ? (
+                        <>
+                          <Check className="w-4 h-4 text-stone-950 shrink-0" />
+                          <span>Скачано HD!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 text-stone-950 shrink-0" />
+                          <span>{isBusy ? 'Создаём...' : 'Скачать HD'}</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleQuickProductStoryAction(prod, 'share')}
+                      className="py-2.5 px-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                      title="Поделиться в Instagram Stories или WhatsApp Status"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                      <span>В соцсети</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const url = getProductDirectUrl(prod.id);
+                        await copyTextToClipboard(url);
+                        setCopiedLinkCardId(prod.id);
+                        setTimeout(() => {
+                          setCopiedLinkCardId((c) => (c === prod.id ? null : c));
+                        }, 2500);
+                      }}
+                      className="py-1.5 px-2 rounded-xl bg-[#0B2E22] hover:bg-[#123E2F] text-amber-200 border border-amber-500/25 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      title="Скопировать прямую ссылку на этот товар для стикера-ссылки в сторис"
+                    >
+                      {isLinkCopied ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Ссылка скопирована</span>
+                        </>
+                      ) : (
+                        <>
+                          <Link className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Ссылка для сторис</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedProductId(prod.id);
+                        customEditorRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="py-1.5 px-2 rounded-xl bg-[#0B2E22] hover:bg-[#123E2F] text-emerald-200 border border-amber-500/25 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      title="Изменить цвет фона или надпись в конструкторе ниже"
+                    >
+                      <Palette className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>Настроить дизайн</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 3 Branded Boutique Info Stories (Адрес, 100% Оригинал, Доставка) */}
+        <div className="pt-4 border-t border-amber-400/20 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h5 className="font-serif font-extrabold text-sm sm:text-base text-amber-300 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Фирменные информационные Сторис Бутика №24 (Full HD 1080×1920):</span>
+            </h5>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            {boutiqueInfoSpecs.map((spec, i) => {
+              const isBusy = busyCardId === spec.id;
+              const isSaved = savedCardId === spec.id;
+              return (
+                <div
+                  key={spec.id}
+                  className="rounded-2xl bg-[#082A1F] border border-amber-400/30 p-3.5 flex flex-col justify-between gap-3"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-amber-300 text-[11px] font-extrabold">
+                      {i === 0 ? (
+                        <MapPin className="w-3.5 h-3.5 shrink-0" />
+                      ) : i === 1 ? (
+                        <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                      ) : (
+                        <Truck className="w-3.5 h-3.5 shrink-0" />
+                      )}
+                      <span>{spec.badge}</span>
+                    </div>
+                    <h6 className="font-serif font-bold text-sm text-white leading-snug">
+                      {spec.title}
+                    </h6>
+                    <p className="text-[11px] text-emerald-200/80 line-clamp-2">
+                      {spec.subtitle}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-amber-500/20">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleQuickInfoStoryAction(spec, 'download')}
+                      className="py-2 px-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      {isSaved ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-stone-950 shrink-0" />
+                          <span>Скачано HD!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5 text-stone-950 shrink-0" />
+                          <span>{isBusy ? 'Создаём...' : 'Скачать HD'}</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleQuickInfoStoryAction(spec, 'share')}
+                      className="py-2 px-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                      <span>В соцсети</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Detailed Custom Story Constructor */}
+      <div ref={customEditorRef} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Controls & Product Selector (7 cols) */}
         <div className="lg:col-span-7 space-y-4 bg-white rounded-2xl p-4 sm:p-5 border border-stone-200 shadow-xs">
           {/* 1. Product Picker */}
