@@ -51,6 +51,14 @@ const RESTORED_REAL_PRODUCT_IDS = new Set<string>([
   'prod-1790595342955',
   'prod-1790594951919',
   'prod-1790594314810',
+  'prod-1790759000350',
+  'prod-1790756142798',
+  'prod-1790688985190',
+  'prod-1790688609740',
+  'prod-1790685182489',
+  'prod-1790684668736',
+  'prod-1790683176351',
+  'prod-1790668937494',
 ]);
 
 // Known accidental duplicate product IDs so they never appear in any browser cache
@@ -862,7 +870,6 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
       try {
         const postRes = await fetch(CLOUD_BLOB_POST_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(fullBlobPayload),
         });
         if (postRes.ok) {

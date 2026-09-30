@@ -33,6 +33,7 @@ import {
   FolderPlus,
   AlertTriangle,
   BarChart3,
+  ArrowLeft,
 } from 'lucide-react';
 import { Category, Language, Product, StoreConfig } from '../types';
 import { AnalyticsTab } from './AnalyticsTab';
@@ -654,11 +655,26 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         className="w-full max-w-5xl xl:max-w-6xl bg-white rounded-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 bg-stone-900 text-white flex items-center justify-between border-b border-stone-800">
-          <div className="flex items-center gap-2.5">
-            <Lock className="w-5 h-5 text-amber-400 shrink-0" />
-            <div>
-              <h3 className="font-bold text-sm sm:text-base font-serif leading-tight">
+        <div className="p-4 sm:p-5 bg-stone-900 text-white flex items-center justify-between gap-2 border-b border-stone-800">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (editingProduct) {
+                  setEditingProduct(null);
+                } else {
+                  onClose();
+                }
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/40 font-extrabold text-xs transition-colors cursor-pointer shrink-0"
+              title={editingProduct ? 'Назад к списку товаров' : 'Назад в магазин'}
+            >
+              <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{editingProduct ? 'Назад к списку' : 'Назад'}</span>
+            </button>
+            <Lock className="w-5 h-5 text-amber-400 hidden sm:inline shrink-0" />
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm sm:text-base font-serif leading-tight truncate">
                 Панель администратора • MUSLIM SHOP
               </h3>
               <p className="text-[11px] text-stone-400 hidden sm:block">
@@ -737,11 +753,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </>
             )}
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-rose-700 text-stone-100 hover:text-white border border-stone-700 font-bold text-xs transition-colors cursor-pointer shrink-0"
               title="Закрыть окно (сессия 10 минут сохраняется)"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 text-amber-300" />
+              <span>Закрыть</span>
             </button>
           </div>
         </div>

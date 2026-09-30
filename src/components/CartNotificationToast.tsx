@@ -74,14 +74,14 @@ export const CartNotificationToast: React.FC<CartNotificationToastProps> = ({
           )}
 
           <div className="flex-1 min-w-0">
-            <h4 className="font-bold text-xs sm:text-sm text-white line-clamp-2 leading-snug">
+            <h4 className="font-bold text-sm sm:text-base text-white line-clamp-2 leading-snug">
               {title}
             </h4>
             <div className="flex items-center justify-between gap-2 mt-1.5">
-              <span className="text-xs sm:text-sm font-extrabold text-amber-300 font-mono tabular-nums">
+              <span className="text-sm sm:text-base font-extrabold text-amber-300 font-mono tabular-nums">
                 {formatPrice(product.price)}
               </span>
-              <span className="text-[11px] text-emerald-200 font-mono tabular-nums">
+              <span className="text-xs text-emerald-200 font-mono tabular-nums">
                 {isKz
                   ? `Себетте: ${cartCount} дана (${formatPrice(cartTotal)})`
                   : `В корзине: ${cartCount} шт. (${formatPrice(cartTotal)})`}
@@ -91,11 +91,11 @@ export const CartNotificationToast: React.FC<CartNotificationToastProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-2.5 mt-3">
+        <div className="grid grid-cols-2 gap-2.5 mt-3.5">
           <button
             type="button"
             onClick={onClose}
-            className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-100 font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
+            className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-100 font-bold text-xs sm:text-sm transition-colors cursor-pointer whitespace-nowrap"
           >
             {isKz ? 'Таңдауды жалғастыру' : 'Продолжить выбор'}
           </button>
@@ -107,11 +107,11 @@ export const CartNotificationToast: React.FC<CartNotificationToastProps> = ({
               onClose();
               onOpenCart();
             }}
-            className="py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-stone-950 font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors cursor-pointer whitespace-nowrap"
+            className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md transition-colors cursor-pointer whitespace-nowrap"
           >
-            <ShoppingBag className="w-3.5 h-3.5 text-stone-950 shrink-0" />
+            <ShoppingBag className="w-4 h-4 text-stone-950 shrink-0" />
             <span>{isKz ? 'Себетке өту' : 'Оформить заказ'}</span>
-            <ArrowRight className="w-3.5 h-3.5 text-stone-950 shrink-0" />
+            <ArrowRight className="w-4 h-4 text-stone-950 shrink-0" />
           </button>
         </div>
       </div>

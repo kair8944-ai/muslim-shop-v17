@@ -16,6 +16,7 @@ import {
   Clock,
   HeartHandshake,
   Eye,
+  ArrowLeft,
 } from 'lucide-react';
 import { Language, Product, StoreConfig } from '../types';
 import { formatPrice } from '../utils/formatters';
@@ -342,12 +343,30 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
     setActiveSlideIndex(0);
     setProgress(0);
     markGroupSeen(storyGroups[idx].id);
+    try {
+      window.history.pushState({ storyViewerOpen: true }, '');
+    } catch {}
   };
 
   const closeStories = () => {
     setActiveGroupIndex(null);
     setActiveSlideIndex(0);
     setProgress(0);
+  };
+
+  const handleStoryBackBtn = () => {
+    if (activeSlideIndex > 0) {
+      setActiveSlideIndex((prev) => prev - 1);
+      setProgress(0);
+    } else if (activeGroupIndex !== null && activeGroupIndex > 0) {
+      const prevGroupIdx = activeGroupIndex - 1;
+      const prevGroup = storyGroups[prevGroupIdx];
+      setActiveGroupIndex(prevGroupIdx);
+      setActiveSlideIndex(prevGroup.slides.length - 1);
+      setProgress(0);
+    } else {
+      closeStories();
+    }
   };
 
   const activeGroup = activeGroupIndex !== null ? storyGroups[activeGroupIndex] : null;
@@ -405,7 +424,7 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
     }
   }, [progress, activeGroupIndex]);
 
-  // Escape key & scroll lock when story modal is open
+  // Escape key, mobile Back button (popstate), & scroll lock when story modal is open
   useEffect(() => {
     if (activeGroupIndex === null) return;
     const prevOverflow = document.body.style.overflow;
@@ -415,10 +434,16 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
       if (e.key === 'ArrowRight') goNextSlide();
       if (e.key === 'ArrowLeft') goPrevSlide();
     };
+    const handlePopState = (e: PopStateEvent) => {
+      e.stopImmediatePropagation();
+      closeStories();
+    };
     window.addEventListener('keydown', handleKey);
+    window.addEventListener('popstate', handlePopState, true);
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('popstate', handlePopState, true);
     };
   }, [activeGroupIndex, activeSlideIndex]);
 
@@ -443,22 +468,22 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
       <section
         id="boutique-stories-bar"
         aria-label={isKz ? 'Бутик стористері' : 'Сторис бутика'}
-        className="w-full bg-white border-b border-stone-200/80 py-3.5 sm:py-4"
+        className="w-full bg-[#061812] border-b border-amber-500/15 py-4 sm:py-5"
       >
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between gap-4 mb-2.5">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
-              <span className="text-xs sm:text-sm font-bold text-emerald-950 tracking-tight">
+          <div className="flex items-center justify-between gap-4 mb-3.5">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_#fbbf24]" />
+              <span className="text-sm sm:text-base font-bold text-white tracking-tight">
                 {isKz ? 'Бутик №24 сторисі • Жылдам шолу' : 'Сторис Бутика №24 • Быстрый обзор'}
               </span>
             </div>
-            <span className="text-[11px] text-stone-500 hidden sm:inline">
+            <span className="text-xs sm:text-sm text-emerald-200/75 hidden sm:inline">
               {isKz ? 'Дөңгелекшені басып, жаңа тауарлар мен акцияларды көріңіз' : 'Нажмите на кружок, чтобы посмотреть новинки и условия'}
             </span>
           </div>
 
-          <div className="flex items-center gap-3.5 sm:gap-6 overflow-x-auto no-scrollbar py-1">
+          <div className="flex items-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar py-1.5">
             {storyGroups.map((group, idx) => {
               const isSeen = seenIds.includes(group.id);
               return (
@@ -467,18 +492,18 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
                   id={`story-trigger-${group.id}`}
                   type="button"
                   onClick={() => openStoryGroup(idx)}
-                  className="group flex flex-col items-center gap-1.5 shrink-0 cursor-pointer focus:outline-none"
+                  className="group flex flex-col items-center gap-2 shrink-0 cursor-pointer focus:outline-none"
                 >
                   <div className="relative">
                     {/* Story glowing gradient ring */}
                     <div
-                      className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full p-[2.5px] transition-transform duration-200 group-hover:scale-105 ${
+                      className={`w-[72px] h-[72px] sm:w-22 sm:h-22 rounded-full p-[2.5px] transition-transform duration-200 group-hover:scale-105 ${
                         isSeen
-                          ? 'bg-stone-300'
-                          : `bg-gradient-to-tr ${group.ringGradient} shadow-md`
+                          ? 'bg-emerald-900/80 border border-amber-500/30'
+                          : `bg-gradient-to-tr ${group.ringGradient} shadow-[0_0_16px_rgba(251,191,36,0.25)]`
                       }`}
                     >
-                      <div className="w-full h-full rounded-full bg-[#041E16] border-2 border-white overflow-hidden flex items-center justify-center relative">
+                      <div className="w-full h-full rounded-full bg-[#04120E] border-2 border-[#061812] overflow-hidden flex items-center justify-center relative">
                         {group.coverImage ? (
                           <>
                             <img
@@ -499,17 +524,17 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
 
                     {/* Bottom micro tag */}
                     <span
-                      className={`absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.2 rounded text-[9px] font-extrabold tracking-wider whitespace-nowrap shadow-xs border ${
+                      className={`absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider whitespace-nowrap shadow-md border ${
                         isSeen
-                          ? 'bg-stone-100 text-stone-600 border-stone-300'
-                          : 'bg-amber-400 text-stone-950 border-white'
+                          ? 'bg-[#0B261C] text-emerald-200 border-amber-500/30'
+                          : 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 border-amber-200'
                       }`}
                     >
                       {isKz ? group.tagKz : group.tagRu}
                     </span>
                   </div>
 
-                  <span className="text-[11px] sm:text-xs font-bold text-stone-800 group-hover:text-emerald-900 transition-colors max-w-[78px] sm:max-w-[92px] truncate mt-0.5">
+                  <span className="text-xs sm:text-sm font-bold text-stone-100 group-hover:text-amber-300 transition-colors max-w-[88px] sm:max-w-[104px] truncate mt-0.5">
                     {isKz ? group.titleKz : group.titleRu}
                   </span>
                 </button>
@@ -575,22 +600,29 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
                   })}
                 </div>
 
-                {/* Story Header */}
+                {/* Story Header with Back & Close Buttons */}
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-emerald-900 border border-amber-400 flex items-center justify-center text-amber-300 font-serif font-bold text-sm shadow-xs">
-                      M
-                    </div>
-                    <div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      onClick={handleStoryBackBtn}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-black/50 hover:bg-black/80 text-amber-300 border border-amber-400/40 font-extrabold text-xs transition-colors cursor-pointer shrink-0"
+                      aria-label="Назад"
+                    >
+                      <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>{isKz ? 'Артқа' : 'Назад'}</span>
+                    </button>
+
+                    <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-white">
+                        <span className="text-xs font-bold text-white truncate">
                           {isKz ? activeGroup.titleKz : activeGroup.titleRu}
                         </span>
-                        <span className="text-[10px] text-amber-300 font-semibold">
+                        <span className="text-[10px] text-amber-300 font-semibold shrink-0">
                           • {config.boutiqueNumber}
                         </span>
                       </div>
-                      <p className="text-[11px] text-stone-300">
+                      <p className="text-[11px] text-stone-300 truncate">
                         {isKz ? activeSlide.badgeKz : activeSlide.badgeRu}
                       </p>
                     </div>
@@ -599,10 +631,11 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
                   <button
                     type="button"
                     onClick={closeStories}
-                    className="p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition-colors cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-black/50 hover:bg-rose-700 text-white border border-amber-400/30 font-extrabold text-xs transition-colors cursor-pointer shrink-0"
                     aria-label="Закрыть сторис"
                   >
-                    <X className="w-5 h-5" />
+                    <X className="w-4 h-4 text-amber-300" />
+                    <span>{isKz ? 'Жабу' : 'Закрыть'}</span>
                   </button>
                 </div>
               </div>

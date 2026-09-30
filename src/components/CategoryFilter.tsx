@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Layers, RotateCcw, Settings2 } from 'lucide-react';
+import { Layers, RotateCcw, Settings2 } from 'lucide-react';
 import { Category, Language } from '../types';
 
 interface CategoryFilterProps {
@@ -25,23 +25,23 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
     <section
       id="category-nav-bar"
       aria-label={isKz ? 'Санаттар каталогы' : 'Каталог категорий'}
-      className="w-full max-w-full overflow-x-hidden bg-[#FAF8F5] border-b border-stone-200/90 py-5 sm:py-6"
+      className="w-full max-w-full overflow-x-hidden bg-[#051510] border-b border-amber-500/15 py-6 sm:py-7"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         {/* Header toolbar for Categories */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-900 text-amber-300 flex items-center justify-center shadow-xs">
-              <Layers className="w-4 h-4" />
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400/20 to-amber-500/10 border border-amber-400/40 text-amber-300 flex items-center justify-center shadow-sm shrink-0">
+              <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-serif font-bold text-emerald-950 flex items-center gap-2">
+              <h2 className="text-lg sm:text-2xl font-serif font-extrabold text-white flex items-center gap-2.5 flex-wrap">
                 <span>{isKz ? 'Каталог бөлімдері' : 'Каталоги товаров'}</span>
-                <span className="text-[11px] font-sans font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300/60">
+                <span className="text-xs font-sans font-extrabold px-2.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/40">
                   {categories.length} {isKz ? 'санат' : 'направлений'}
                 </span>
               </h2>
-              <p className="text-[11px] sm:text-xs text-stone-500">
+              <p className="text-xs sm:text-sm text-emerald-200/75 mt-1 leading-relaxed">
                 {isKz
                   ? 'Барлық бөлімдер алдыңызда — кез келгенін таңдап өнімдерді көріңіз'
                   : 'Все категории наглядно перед вами — нажмите на нужную для быстрого выбора'}
@@ -49,15 +49,15 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {selectedCategoryId !== 'cat-all' && (
               <button
                 type="button"
                 id="reset-category-filter-btn"
                 onClick={() => onSelectCategory('cat-all')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-200/90 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer shadow-2xs"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-[#0E2C21] hover:bg-[#153D2E] text-amber-300 border border-amber-500/30 transition-colors cursor-pointer"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-4 h-4" />
                 <span>{isKz ? 'Барлығын көрсету' : 'Сбросить фильтр'}</span>
               </button>
             )}
@@ -68,9 +68,9 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
                 id="manage-categories-btn"
                 onClick={onOpenAdminCategories}
                 title={isKz ? 'Каталогтарды баптау' : 'Управление каталогами'}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-700/30 transition-colors cursor-pointer shadow-2xs"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-[#0B221A] hover:bg-[#113126] text-emerald-200 hover:text-amber-300 border border-amber-500/25 transition-colors cursor-pointer"
               >
-                <Settings2 className="w-3.5 h-3.5 text-emerald-700" />
+                <Settings2 className="w-4 h-4 text-amber-400" />
                 <span className="hidden sm:inline">
                   {isKz ? 'Каталогтарды өзгерту' : 'Настроить каталоги'}
                 </span>
@@ -82,7 +82,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
         {/* ALL CATEGORIES LAID OUT SIDE-BY-SIDE (NO HORIZONTAL SCROLL) */}
         <div
           id="category-grid-chips"
-          className="flex flex-wrap items-center gap-2 sm:gap-2.5"
+          className="flex flex-wrap items-center gap-2 sm:gap-3"
         >
           {categories.map((cat) => {
             const isSelected = selectedCategoryId === cat.id;
@@ -95,19 +95,19 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
                 id={`cat-btn-${cat.id}`}
                 type="button"
                 onClick={() => onSelectCategory(cat.id)}
-                className={`group inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-semibold transition-all cursor-pointer select-none active:scale-97 ${
+                className={`group inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-sm sm:text-base font-bold transition-all cursor-pointer select-none active:scale-97 ${
                   isSelected
-                    ? 'bg-emerald-900 text-white shadow-md shadow-emerald-950/20 ring-2 ring-amber-400 ring-offset-1 border-transparent'
-                    : 'bg-white hover:bg-emerald-50/70 text-stone-800 border border-stone-200/90 shadow-2xs hover:border-emerald-500/40'
+                    ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 text-stone-950 shadow-lg shadow-amber-500/20 ring-2 ring-amber-300 border-transparent'
+                    : 'bg-[#0B221A] hover:bg-[#113126] text-stone-100 border border-amber-500/20 hover:border-amber-400/50 shadow-sm'
                 }`}
               >
-                <span className="text-base sm:text-lg leading-none transition-transform group-hover:scale-110">
+                <span className="text-lg sm:text-xl leading-none transition-transform group-hover:scale-110">
                   {cat.icon || '✨'}
                 </span>
 
                 <span
                   className={`tracking-tight ${
-                    isSelected ? 'text-amber-200 font-bold' : 'text-stone-800'
+                    isSelected ? 'text-stone-950 font-extrabold' : 'text-stone-100 group-hover:text-white'
                   }`}
                 >
                   {catName}
@@ -115,10 +115,10 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
 
                 {count > 0 && (
                   <span
-                    className={`text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full font-bold transition-colors ${
+                    className={`text-xs px-2 py-0.5 rounded-full font-extrabold transition-colors tabular-nums ${
                       isSelected
-                        ? 'bg-amber-400 text-stone-950 shadow-xs'
-                        : 'bg-stone-100 text-stone-600 group-hover:bg-emerald-100 group-hover:text-emerald-900'
+                        ? 'bg-stone-950 text-amber-300 shadow-xs'
+                        : 'bg-[#061510] text-amber-300/90 border border-amber-500/25 group-hover:border-amber-400/50'
                     }`}
                   >
                     {count}
