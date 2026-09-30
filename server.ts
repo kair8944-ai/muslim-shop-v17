@@ -534,10 +534,51 @@ app.post('/api/catalog/sync', async (req, res) => {
     let nextCategories = [...catalogCache.categories];
     let nextSettings = { ...catalogCache.settings };
 
+    const mergeServerProduct = (existing: any, incoming: any) => {
+      if (!existing) return incoming;
+      const isValidText = (val: unknown) => {
+        if (typeof val !== 'string') return false;
+        const t = val.trim();
+        return t.length > 0 && t !== 'Описание товара' && t !== 'Тауар сипаттамасы';
+      };
+      const merged = { ...existing, ...incoming };
+      if (!isValidText(incoming.descriptionRu) && isValidText(existing.descriptionRu)) {
+        merged.descriptionRu = existing.descriptionRu;
+      }
+      if (!isValidText(incoming.descriptionKz) && isValidText(existing.descriptionKz)) {
+        merged.descriptionKz = existing.descriptionKz;
+      }
+      if (!isValidText(incoming.specsRu) && isValidText(existing.specsRu)) {
+        merged.specsRu = existing.specsRu;
+      }
+      if (!isValidText(incoming.specsKz) && isValidText(existing.specsKz)) {
+        merged.specsKz = existing.specsKz;
+      }
+      if (!isValidText(incoming.howToUseRu) && isValidText(existing.howToUseRu)) {
+        merged.howToUseRu = existing.howToUseRu;
+      }
+      if (!isValidText(incoming.howToUseKz) && isValidText(existing.howToUseKz)) {
+        merged.howToUseKz = existing.howToUseKz;
+      }
+      if ((!Array.isArray(incoming.benefitsRu) || incoming.benefitsRu.length === 0) && Array.isArray(existing.benefitsRu) && existing.benefitsRu.length > 0) {
+        merged.benefitsRu = existing.benefitsRu;
+      }
+      if ((!Array.isArray(incoming.benefitsKz) || incoming.benefitsKz.length === 0) && Array.isArray(existing.benefitsKz) && existing.benefitsKz.length > 0) {
+        merged.benefitsKz = existing.benefitsKz;
+      }
+      if ((!incoming.volumeOrWeight || !String(incoming.volumeOrWeight).trim()) && existing.volumeOrWeight) {
+        merged.volumeOrWeight = existing.volumeOrWeight;
+      }
+      if ((!incoming.country || !String(incoming.country).trim()) && existing.country) {
+        merged.country = existing.country;
+      }
+      return merged;
+    };
+
     if (action === 'saveProduct' && product && product.id) {
       const idx = nextProducts.findIndex((p) => p.id === product.id);
       if (idx >= 0) {
-        nextProducts[idx] = { ...nextProducts[idx], ...product };
+        nextProducts[idx] = mergeServerProduct(nextProducts[idx], product);
       } else {
         nextProducts = [product, ...nextProducts];
       }
@@ -547,7 +588,7 @@ app.post('/api/catalog/sync', async (req, res) => {
         if (!item || !item.id) continue;
         const idx = nextProducts.findIndex((p) => p.id === item.id);
         if (idx >= 0) {
-          nextProducts[idx] = { ...nextProducts[idx], ...item };
+          nextProducts[idx] = mergeServerProduct(nextProducts[idx], item);
         } else {
           nextProducts = [item, ...nextProducts];
         }
@@ -583,7 +624,7 @@ app.post('/api/catalog/sync', async (req, res) => {
           if (!item || !item.id || delProdSet.has(item.id)) continue;
           const idx = nextProducts.findIndex((p) => p.id === item.id);
           if (idx >= 0) {
-            nextProducts[idx] = { ...nextProducts[idx], ...item };
+            nextProducts[idx] = mergeServerProduct(nextProducts[idx], item);
           } else {
             nextProducts = [item, ...nextProducts];
           }

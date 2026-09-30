@@ -23,6 +23,7 @@ import { Footer } from './components/Footer';
 import { BottomNav, BottomNavTab } from './components/BottomNav';
 import { CatalogDrawer } from './components/CatalogDrawer';
 import { CartNotificationToast } from './components/CartNotificationToast';
+import { CompareBar, CompareModal } from './components/CompareModal';
 import { doesProductMatchSymptom, SYMPTOM_GOALS } from './utils/recommendations';
 import { scoreProductSearchMatch } from './utils/searchEngine';
 import {
@@ -50,6 +51,7 @@ import {
   getLocalCatalogDelta,
   getCachedProductsFromLocalStorage,
   saveProductsToLocalStorageCache,
+  mergeProductPreservingFields,
   PRODUCTS_CACHE_STORAGE_KEY,
 } from './services/firestoreService';
 import { trackVisit, trackProductView } from './services/analyticsService';
@@ -155,12 +157,14 @@ function reconcileProductsWithCache(
 
       // Prefer local delta override if explicitly modified locally, otherwise incoming Firestore state wins
       const isLocallyUpserted = Boolean(delta.upsertedProducts && delta.upsertedProducts[incoming.id]);
-      const incomingNewer = (incoming.createdAt || '') >= (existing.createdAt || '');
-      const baseWinner = isLocallyUpserted && !incomingNewer ? existing : incoming;
+      const incomingStrictlyNewer = (incoming.createdAt || '') > (existing.createdAt || '');
+      const merged =
+        isLocallyUpserted && !incomingStrictlyNewer
+          ? mergeProductPreservingFields(incoming, existing)
+          : mergeProductPreservingFields(existing, incoming);
 
       mergedMap.set(incoming.id, {
-        ...existing,
-        ...baseWinner,
+        ...merged,
         images: resolvedImages,
       });
     }
@@ -311,6 +315,17 @@ export default function App() {
       return [];
     }
   });
+
+  // Comparison state (up to 3 products)
+  const [compareList, setCompareList] = useState<Product[]>(() => {
+    try {
+      const saved = localStorage.getItem('muslim_shop_compare');
+      return saved ? JSON.parse(saved).slice(0, 3) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
 
   // Filtering & Search state (supports ?category= from sitemap.xml & search engines)
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => {
@@ -722,6 +737,57 @@ export default function App() {
     });
   };
 
+  // Compare handlers (up to 3 products)
+  useEffect(() => {
+    try {
+      localStorage.setItem('muslim_shop_compare', JSON.stringify(compareList));
+    } catch {}
+  }, [compareList]);
+
+  // Keep selectedProductForDetail and compareList synced with latest product descriptions/fields
+  useEffect(() => {
+    if (products.length === 0) return;
+    const byId = new Map<string, Product>();
+    products.forEach((p) => byId.set(p.id, p));
+
+    setSelectedProductForDetail((prev) => {
+      if (!prev) return prev;
+      const fresh = byId.get(prev.id);
+      if (fresh && !areProductsDeepEqual(prev, fresh)) {
+        return fresh;
+      }
+      return prev;
+    });
+
+    setCompareList((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((item) => {
+        const fresh = byId.get(item.id);
+        if (fresh && !areProductsDeepEqual(item, fresh)) {
+          changed = true;
+          return fresh;
+        }
+        return item;
+      });
+      return changed ? next : prev;
+    });
+  }, [products]);
+
+  const handleToggleCompare = (product: Product) => {
+    setCompareList((prev) => {
+      const exists = prev.some((p) => p.id === product.id);
+      if (exists) {
+        return prev;
+      }
+      if (prev.length >= 3) {
+        return [...prev.slice(1), product];
+      }
+      return [...prev, product];
+    });
+    setIsCompareOpen(true);
+  };
+
   // Product Counts for categories
   const productCounts = useMemo(() => {
     const counts: Record<string, number> = { 'cat-all': products.length };
@@ -1034,7 +1100,9 @@ export default function App() {
                 accessibility={accessibility}
                 isFavorite={favorites.some((f) => f.id === product.id)}
                 isInCart={cart.some((c) => c.product.id === product.id)}
+                isInCompare={compareList.some((c) => c.id === product.id)}
                 onToggleFavorite={handleToggleFavorite}
+                onToggleCompare={handleToggleCompare}
                 onAddToCart={handleAddToCart}
                 onOpenDetail={handleOpenDetail}
                 onQuickOrder={setSelectedProductForQuickOrder}
@@ -1169,6 +1237,38 @@ export default function App() {
           setIsCartOpen(true);
         }}
         onClose={() => setCartToastProduct(null)}
+      />
+
+      {/* Floating Comparison Bar & Side-by-Side Comparison Modal (up to 3 products) */}
+      <CompareBar
+        compareList={compareList}
+        lang={lang}
+        onOpenCompareModal={() => setIsCompareOpen(true)}
+        onRemoveFromCompare={(id) =>
+          setCompareList((prev) => prev.filter((p) => p.id !== id))
+        }
+        onClearCompare={() => setCompareList([])}
+      />
+
+      <CompareModal
+        isOpen={isCompareOpen}
+        products={compareList}
+        allProducts={products}
+        categories={categories}
+        lang={lang}
+        accessibility={accessibility}
+        onAddProductToCompare={handleToggleCompare}
+        onRemoveProduct={(id) => {
+          setCompareList((prev) => {
+            const next = prev.filter((p) => p.id !== id);
+            if (next.length === 0) setIsCompareOpen(false);
+            return next;
+          });
+        }}
+        onClearAll={() => setCompareList([])}
+        onAddToCart={handleAddToCart}
+        onOpenDetail={handleOpenDetail}
+        onClose={() => setIsCompareOpen(false)}
       />
 
       {/* 4. Favorites Drawer */}

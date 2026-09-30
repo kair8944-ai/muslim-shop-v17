@@ -519,12 +519,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!editingProduct) return;
     setIsSaving(true);
     try {
-      const updatedTitle = editingProduct.titleRu;
-      await saveProductToFirestore(editingProduct);
-      onUpdateProduct(editingProduct);
+      const updatedProd: Product = {
+        ...editingProduct,
+        createdAt: new Date().toISOString(),
+      };
+      const updatedTitle = updatedProd.titleRu;
+      onUpdateProduct(updatedProd);
+      await saveProductToFirestore(updatedProd);
       setEditingProduct(null);
       setSavedSuccess(true);
-      setCopyFeedbackMsg(`✅ Товар «${updatedTitle}» успешно обновлён и синхронизирован!`);
+      setCopyFeedbackMsg(`✅ Товар «${updatedTitle}» (включая описание) успешно сохранён и синхронизирован!`);
       setTimeout(() => {
         setSavedSuccess(false);
         setCopyFeedbackMsg(null);
@@ -1150,14 +1154,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                   <div>
                     <label className="block text-xs font-bold text-stone-700 mb-1">
-                      Описание товара
+                      Описание товара (RU)
                     </label>
                     <textarea
                       value={editingProduct.descriptionRu || ''}
                       onChange={(e) =>
                         setEditingProduct({ ...editingProduct, descriptionRu: e.target.value })
                       }
-                      rows={4}
+                      rows={5}
+                      placeholder="Подробное описание полезных свойств, назначения и преимуществ товара..."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 focus:ring-1 focus:ring-emerald-700"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Состав и характеристики (необязательно)
+                    </label>
+                    <textarea
+                      value={editingProduct.specsRu || ''}
+                      onChange={(e) =>
+                        setEditingProduct({ ...editingProduct, specsRu: e.target.value })
+                      }
+                      rows={3}
+                      placeholder="Состав, количество капсул/объём, страна производства..."
                       className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 focus:ring-1 focus:ring-emerald-700"
                     />
                   </div>

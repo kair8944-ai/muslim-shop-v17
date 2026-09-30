@@ -19,15 +19,15 @@ export const SETTINGS_COLLECTION = 'settings';
 export const ORDERS_COLLECTION = 'orders';
 export const CATALOG_DELTA_DOC_ID = 'catalog_delta';
 
-export const PRODUCTS_CACHE_STORAGE_KEY = 'muslim_shop_products_cache_v3';
-const LEGACY_PRODUCTS_CACHE_KEY = 'muslim_shop_products';
-const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v5';
-const PREV_LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v4';
+export const PRODUCTS_CACHE_STORAGE_KEY = 'muslim_shop_products_cache_v4';
+const LEGACY_PRODUCTS_CACHE_KEY = 'muslim_shop_products_cache_v3';
+const LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v6';
+const PREV_LOCAL_DELTA_STORAGE_KEY = 'muslim_shop_catalog_delta_v5';
 const IDB_NAME = 'muslim_shop_idb_v2';
 const IDB_VERSION = 1;
 const IDB_STORE_KV = 'kv_store';
-const IDB_BASE_CATALOG_KEY = 'base_catalog_v8';
-const SNAPSHOT_CACHE_BUSTER = 'v8';
+const IDB_BASE_CATALOG_KEY = 'base_catalog_v9';
+const SNAPSHOT_CACHE_BUSTER = 'v9';
 
 // Cloud Relay (CORS-enabled full-image & metadata sync when Firestore Free Tier daily quota is reached)
 const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
@@ -73,6 +73,92 @@ function hasRealProductImage(prod: any): boolean {
       prod.images[0].length > 10 &&
       !prod.images[0].includes('photo-1584308666744-24d5c474f2ae')
   );
+}
+
+export function hasValidDescription(desc?: string): boolean {
+  if (!desc || typeof desc !== 'string') return false;
+  const trimmed = desc.trim();
+  return trimmed.length > 0 && trimmed !== 'Описание товара';
+}
+
+/**
+ * Merges an incoming/updated Product onto an existing/base Product while guaranteeing
+ * that rich fields (descriptionRu, descriptionKz, specsRu, specsKz, howToUseRu, benefits, images)
+ * are NEVER wiped out by an empty string or compact delta record.
+ */
+export function mergeProductPreservingFields(
+  baseOrExisting: Product | undefined,
+  incoming: Product
+): Product {
+  if (!baseOrExisting) return incoming;
+
+  const resolvedImages = hasRealProductImage(incoming)
+    ? incoming.images
+    : hasRealProductImage(baseOrExisting)
+    ? baseOrExisting.images
+    : incoming.images;
+
+  const resolvedDescRu = hasValidDescription(incoming.descriptionRu)
+    ? incoming.descriptionRu
+    : hasValidDescription(baseOrExisting.descriptionRu)
+    ? baseOrExisting.descriptionRu
+    : incoming.descriptionRu || baseOrExisting.descriptionRu || '';
+
+  const resolvedDescKz = hasValidDescription(incoming.descriptionKz)
+    ? incoming.descriptionKz
+    : hasValidDescription(baseOrExisting.descriptionKz)
+    ? baseOrExisting.descriptionKz
+    : resolvedDescRu;
+
+  const resolvedSpecsRu =
+    incoming.specsRu && incoming.specsRu.trim().length > 0
+      ? incoming.specsRu
+      : baseOrExisting.specsRu || '';
+
+  const resolvedSpecsKz =
+    incoming.specsKz && incoming.specsKz.trim().length > 0
+      ? incoming.specsKz
+      : baseOrExisting.specsKz || '';
+
+  const resolvedHowToUseRu =
+    incoming.howToUseRu && incoming.howToUseRu.trim().length > 0
+      ? incoming.howToUseRu
+      : baseOrExisting.howToUseRu || '';
+
+  const resolvedHowToUseKz =
+    incoming.howToUseKz && incoming.howToUseKz.trim().length > 0
+      ? incoming.howToUseKz
+      : baseOrExisting.howToUseKz || '';
+
+  const resolvedBenefitsRu =
+    Array.isArray(incoming.benefitsRu) && incoming.benefitsRu.length > 0
+      ? incoming.benefitsRu
+      : Array.isArray(baseOrExisting.benefitsRu) && baseOrExisting.benefitsRu.length > 0
+      ? baseOrExisting.benefitsRu
+      : [];
+
+  const resolvedBenefitsKz =
+    Array.isArray(incoming.benefitsKz) && incoming.benefitsKz.length > 0
+      ? incoming.benefitsKz
+      : Array.isArray(baseOrExisting.benefitsKz) && baseOrExisting.benefitsKz.length > 0
+      ? baseOrExisting.benefitsKz
+      : [];
+
+  return {
+    ...baseOrExisting,
+    ...incoming,
+    images: resolvedImages,
+    descriptionRu: resolvedDescRu,
+    descriptionKz: resolvedDescKz,
+    specsRu: resolvedSpecsRu,
+    specsKz: resolvedSpecsKz,
+    howToUseRu: resolvedHowToUseRu,
+    howToUseKz: resolvedHowToUseKz,
+    benefitsRu: resolvedBenefitsRu,
+    benefitsKz: resolvedBenefitsKz,
+    volumeOrWeight: incoming.volumeOrWeight || baseOrExisting.volumeOrWeight || '',
+    country: incoming.country || baseOrExisting.country || '',
+  };
 }
 
 // In-memory high-res image map to preserve large base64 images when compacting localStorage
@@ -291,11 +377,11 @@ function saveLocalCatalogDelta(delta: CatalogDelta): void {
       }
     } catch {}
   }
-  idbSet('catalog_delta_v3', delta).catch(() => {});
+  idbSet('catalog_delta_v4', delta).catch(() => {});
 }
 
 // Hydrate inMemoryDelta from IndexedDB on boot in case >20 products were added locally
-idbGet<CatalogDelta>('catalog_delta_v3')
+idbGet<CatalogDelta>('catalog_delta_v4')
   .then((idbDelta) => {
     if (idbDelta && idbDelta.upsertedProducts) {
       const current = getLocalCatalogDelta();
@@ -307,9 +393,20 @@ idbGet<CatalogDelta>('catalog_delta_v3')
         ])
       );
       const mergedUpserted: Record<string, Product> = {};
-      for (const [id, p] of Object.entries({ ...idbDelta.upsertedProducts, ...current.upsertedProducts })) {
-        if (!mergedDeleted.includes(id) && hasRealProductImage(p)) {
-          mergedUpserted[id] = p;
+      const allIds = new Set([
+        ...Object.keys(idbDelta.upsertedProducts || {}),
+        ...Object.keys(current.upsertedProducts || {}),
+      ]);
+      for (const id of allIds) {
+        if (mergedDeleted.includes(id)) continue;
+        const fromIdb = idbDelta.upsertedProducts?.[id];
+        const fromCurr = current.upsertedProducts?.[id];
+        const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === id);
+        const combined = fromCurr && fromIdb
+          ? mergeProductPreservingFields(fromIdb, fromCurr)
+          : (fromCurr || fromIdb);
+        if (combined && hasRealProductImage(combined)) {
+          mergedUpserted[id] = mergeProductPreservingFields(baseProd, combined);
         }
       }
       const merged: CatalogDelta = {
@@ -336,7 +433,10 @@ idbGet<CatalogDelta>('catalog_delta_v3')
  */
 export function recordLocalProductUpsert(product: Product): void {
   const delta = getLocalCatalogDelta();
-  const normalized = normalizeProduct(product.id, product);
+  const existing = delta.upsertedProducts[product.id];
+  const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === product.id);
+  const rawNormalized = normalizeProduct(product.id, product);
+  const normalized = mergeProductPreservingFields(existing || baseProd, rawNormalized);
   if (hasRealProductImage(normalized)) {
     inMemoryProductImages.set(normalized.id, normalized.images);
   } else if (inMemoryProductImages.has(normalized.id)) {
@@ -425,20 +525,35 @@ export function applyProductsDelta(baseProducts: Product[], customDelta?: Catalo
   }
 
   if (delta.upsertedProducts) {
+    let repairedAnyEmptyDesc = false;
     for (const [id, prod] of Object.entries(delta.upsertedProducts)) {
       if (prod && !deletedSet.has(id)) {
         const normalized = normalizeProduct(id, prod);
-        if (hasRealProductImage(normalized)) {
-          inMemoryProductImages.set(normalized.id, normalized.images);
-          map.set(id, normalized);
-        } else if (inMemoryProductImages.has(normalized.id)) {
-          normalized.images = inMemoryProductImages.get(normalized.id)!;
-          map.set(id, normalized);
-        } else if (map.has(id)) {
-          const baseExisting = map.get(id)!;
-          map.set(id, { ...normalized, images: baseExisting.images });
+        const baseExisting = map.get(id);
+        const mergedProd = mergeProductPreservingFields(baseExisting, normalized);
+
+        if (hasRealProductImage(mergedProd)) {
+          inMemoryProductImages.set(mergedProd.id, mergedProd.images);
+          map.set(id, mergedProd);
+        } else if (inMemoryProductImages.has(mergedProd.id)) {
+          mergedProd.images = inMemoryProductImages.get(mergedProd.id)!;
+          map.set(id, mergedProd);
+        } else if (baseExisting) {
+          map.set(id, { ...mergedProd, images: baseExisting.images });
+        }
+
+        // Self-heal delta if it had a missing description that was restored from base catalog
+        if (
+          !hasValidDescription(normalized.descriptionRu) &&
+          hasValidDescription(mergedProd.descriptionRu)
+        ) {
+          delta.upsertedProducts[id] = mergedProd;
+          repairedAnyEmptyDesc = true;
         }
       }
+    }
+    if (repairedAnyEmptyDesc && !customDelta) {
+      saveLocalCatalogDelta(delta);
     }
   }
 
@@ -571,18 +686,39 @@ function mergeRemoteDeltaIntoLocal(remoteData: any): CatalogDelta {
   );
 
   const mergedUpsertedProds: Record<string, Product> = { ...local.upsertedProducts };
+  const baseCatalogMap = new Map<string, Product>();
+  if (lastResolvedCatalog && Array.isArray(lastResolvedCatalog.products)) {
+    for (const bp of lastResolvedCatalog.products) {
+      if (bp && bp.id) baseCatalogMap.set(bp.id, bp);
+    }
+  }
+
   if (remoteData.upsertedProducts && typeof remoteData.upsertedProducts === 'object') {
     for (const [id, prod] of Object.entries(remoteData.upsertedProducts)) {
       if (prod && !mergedDeletedProds.includes(id) && !DEFAULT_DELETED_PRODUCT_IDS.has(id)) {
         const existing = mergedUpsertedProds[id];
-        const remoteNorm = normalizeProduct(id, prod);
+        const baseFallback = existing || baseCatalogMap.get(id);
+        const rawRemoteNorm = normalizeProduct(id, prod);
         // Never allow a placeholder demo image to overwrite or pollute upsertedProducts
-        if (!hasRealProductImage(remoteNorm)) {
+        if (!hasRealProductImage(rawRemoteNorm)) {
           continue;
         }
+        const remoteNorm = mergeProductPreservingFields(baseFallback, rawRemoteNorm);
         inMemoryProductImages.set(id, remoteNorm.images);
-        if (!existing || (remoteNorm.createdAt || '') >= (existing.createdAt || '')) {
+
+        if (!existing) {
           mergedUpsertedProds[id] = remoteNorm;
+        } else {
+          const isRemoteStrictlyNewer =
+            (remoteNorm.createdAt || '') > (existing.createdAt || '');
+          const remoteHasDescExistingLacks =
+            !hasValidDescription(existing.descriptionRu) &&
+            hasValidDescription(remoteNorm.descriptionRu);
+          if (isRemoteStrictlyNewer || remoteHasDescExistingLacks) {
+            mergedUpsertedProds[id] = mergeProductPreservingFields(existing, remoteNorm);
+          } else {
+            mergedUpsertedProds[id] = mergeProductPreservingFields(remoteNorm, existing);
+          }
         }
       }
     }
@@ -897,19 +1033,29 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
           continue;
         }
 
-        upsertedMap[item.i] = normalizeProduct(item.i, {
-          ...(existing || {}),
-          id: item.i,
-          titleRu: existing?.titleRu || item.r,
-          price: item.p,
-          oldPrice: item.o,
-          categoryId: item.c || 'cat-health',
-          sku: item.s,
-          inStock: Boolean(item.k),
-          isHit: Boolean(item.h),
-          isNew: Boolean(item.n),
-          images: [resolvedImg],
-        });
+        const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === item.i);
+        const fallbackProd = existing || baseProd;
+
+        // Do not overwrite an existing or base catalog product with a compact chunk that lacks descriptions
+        if (fallbackProd) {
+          upsertedMap[item.i] = mergeProductPreservingFields(
+            fallbackProd,
+            normalizeProduct(item.i, {
+              ...fallbackProd,
+              id: item.i,
+              titleRu: fallbackProd.titleRu || item.r,
+              price: typeof item.p === 'number' ? item.p : fallbackProd.price,
+              oldPrice: typeof item.o === 'number' ? item.o : fallbackProd.oldPrice,
+              categoryId: item.c || fallbackProd.categoryId || 'cat-health',
+              sku: item.s || fallbackProd.sku,
+              inStock: typeof item.k === 'number' ? Boolean(item.k) : fallbackProd.inStock,
+              isHit: typeof item.h === 'number' ? Boolean(item.h) : fallbackProd.isHit,
+              isNew: typeof item.n === 'number' ? Boolean(item.n) : fallbackProd.isNew,
+              images: [resolvedImg],
+              createdAt: fallbackProd.createdAt || '2026-01-01T00:00:00.000Z',
+            })
+          );
+        }
       }
       return mergeRemoteDeltaIntoLocal({
         upsertedProducts: upsertedMap,
@@ -957,11 +1103,16 @@ export async function pushDeltaToFirestore(
         baseProd.isHit !== p.isHit ||
         baseProd.isNew !== p.isNew ||
         baseProd.titleRu !== p.titleRu ||
-        baseProd.categoryId !== p.categoryId;
+        baseProd.titleKz !== p.titleKz ||
+        baseProd.categoryId !== p.categoryId ||
+        baseProd.descriptionRu !== p.descriptionRu ||
+        baseProd.descriptionKz !== p.descriptionKz ||
+        baseProd.specsRu !== p.specsRu ||
+        baseProd.howToUseRu !== p.howToUseRu;
 
       if (isModified || newestIds.has(p.id)) {
         if (hasRealProductImage(p)) {
-          recordLocalProductUpsert(p);
+          recordLocalProductUpsert(mergeProductPreservingFields(baseProd, p));
         }
       }
     }
@@ -992,11 +1143,13 @@ export async function pushDeltaToFirestore(
     const recentInlineProducts: Record<string, any> = {};
     let approxBytes = 0;
     for (const p of allUpsertedList) {
-      const memImgs = inMemoryProductImages.get(p.id);
+      const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === p.id);
+      const enrichedProd = mergeProductPreservingFields(baseProd, p);
+      const memImgs = inMemoryProductImages.get(enrichedProd.id);
       const prodWithFullImg =
         memImgs && memImgs.length > 0 && !memImgs[0].includes('photo-1584308666744-24d5c474f2ae')
-          ? { ...p, images: memImgs }
-          : p;
+          ? { ...enrichedProd, images: memImgs }
+          : enrichedProd;
       const cleanProd: Record<string, any> = {};
       for (const [k, v] of Object.entries(prodWithFullImg)) {
         if (v !== undefined) cleanProd[k] = v;

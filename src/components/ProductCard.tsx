@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShoppingBag, Heart, ZoomIn, Check, Zap, Clock, Share2 } from 'lucide-react';
+import { ShoppingBag, Heart, ZoomIn, Check, Zap, Clock, Share2, ArrowLeftRight } from 'lucide-react';
 import { AccessibilitySettings, Language, Product } from '../types';
 import { formatPrice, shareOrCopyProduct } from '../utils/formatters';
 
@@ -9,7 +9,9 @@ interface ProductCardProps {
   accessibility: AccessibilitySettings;
   isFavorite: boolean;
   isInCart: boolean;
+  isInCompare?: boolean;
   onToggleFavorite: (product: Product) => void;
+  onToggleCompare?: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   onOpenDetail: (product: Product) => void;
   onQuickOrder: (product: Product) => void;
@@ -22,7 +24,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   accessibility,
   isFavorite,
   isInCart,
+  isInCompare = false,
   onToggleFavorite,
+  onToggleCompare,
   onAddToCart,
   onOpenDetail,
   onQuickOrder,
@@ -278,6 +282,38 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               </button>
             )}
           </div>
+
+          {/* Compare Button Row — Intuitive 'Добавить в сравнение' button with comparison icon */}
+          {onToggleCompare && (
+            <button
+              type="button"
+              id={`compare-btn-${product.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCompare(product);
+              }}
+              className={`mt-2 w-full py-2 px-2.5 rounded-xl border text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                isInCompare
+                  ? 'bg-emerald-950 text-amber-300 border-amber-400 shadow-2xs'
+                  : 'bg-stone-100/90 hover:bg-emerald-50 text-stone-700 hover:text-emerald-950 border-stone-200/90'
+              }`}
+            >
+              <ArrowLeftRight
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  isInCompare ? 'text-amber-400' : 'text-emerald-800'
+                }`}
+              />
+              <span className="truncate">
+                {isInCompare
+                  ? lang === 'kz'
+                    ? '✓ Салыстыруда • Ашу'
+                    : '✓ В сравнении • Открыть'
+                  : lang === 'kz'
+                  ? 'Салыстыруға қосу'
+                  : 'Добавить в сравнение'}
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </div>
