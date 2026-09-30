@@ -17,18 +17,9 @@ import {
   HeartHandshake,
   Eye,
   ArrowLeft,
-  Download,
-  Share2,
-  RefreshCw,
 } from 'lucide-react';
 import { Language, Product, StoreConfig } from '../types';
 import { formatPrice } from '../utils/formatters';
-import {
-  renderProductStoryHd,
-  renderInfoStoryHd,
-  triggerDataUrlDownload,
-  shareOrDownloadStoryResult,
-} from '../utils/storyCanvasRenderer';
 
 interface BoutiqueStoriesProps {
   products: Product[];
@@ -85,9 +76,7 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
   const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
   const [progress, setProgress] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [shuffleSeed, setShuffleSeed] = useState<number>(() => Math.floor(Math.random() * 10000));
-  const [isDownloadingHd, setIsDownloadingHd] = useState<boolean>(false);
-  const [hdSavedFeedback, setHdSavedFeedback] = useState<boolean>(false);
+  const [shuffleSeed] = useState<number>(() => Math.floor(Math.random() * 10000));
   const [seenIds, setSeenIds] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem(SEEN_STORIES_STORAGE_KEY);
@@ -349,48 +338,6 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
     ];
   }, [products, config, isKz, shuffleSeed]);
 
-  const handleDownloadActiveSlideHd = async (mode: 'download' | 'share') => {
-    if (!activeSlide || isDownloadingHd) return;
-    setIsPaused(true);
-    setIsDownloadingHd(true);
-    try {
-      if (activeSlide.type === 'product' && activeSlide.product) {
-        const res = await renderProductStoryHd({
-          product: activeSlide.product,
-          config,
-          badgeText: isKz ? activeSlide.badgeKz : activeSlide.badgeRu,
-        });
-        if (mode === 'share') {
-          await shareOrDownloadStoryResult(res, activeSlide.product.titleRu, activeSlide.product);
-        } else {
-          triggerDataUrlDownload(res.dataUrl, res.filename);
-        }
-      } else {
-        const res = await renderInfoStoryHd({
-          spec: {
-            id: activeSlide.id,
-            badge: isKz ? activeSlide.badgeKz : activeSlide.badgeRu,
-            title: isKz ? activeSlide.titleKz : activeSlide.titleRu,
-            subtitle: isKz ? activeSlide.subtitleKz : activeSlide.subtitleRu,
-            bullets: (isKz ? activeSlide.bulletsKz : activeSlide.bulletsRu) || [],
-          },
-          config,
-        });
-        if (mode === 'share') {
-          await shareOrDownloadStoryResult(res, isKz ? activeSlide.titleKz : activeSlide.titleRu);
-        } else {
-          triggerDataUrlDownload(res.dataUrl, res.filename);
-        }
-      }
-      setHdSavedFeedback(true);
-      setTimeout(() => setHdSavedFeedback(false), 3000);
-    } catch (err) {
-      console.error('Story HD export error:', err);
-    } finally {
-      setIsDownloadingHd(false);
-    }
-  };
-
   const markGroupSeen = (groupId: string) => {
     setSeenIds((prev) => {
       if (prev.includes(groupId)) return prev;
@@ -542,17 +489,9 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
                 {isKz ? 'Бутик №24 сторисі • Жылдам шолу' : 'Сторис Бутика №24 • Быстрый обзор'}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShuffleSeed((s) => s + 1)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#0B241B] hover:bg-[#12382B] text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer shrink-0"
-                title={isKz ? 'Басқа тауарларды көрсету' : 'Показать другие товары в сторис'}
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>{isKz ? 'Жаңарту' : 'Другие товары'}</span>
-              </button>
-            </div>
+            <span className="text-xs font-medium text-amber-300/90 hidden sm:inline">
+              {isKz ? 'Түртіп ашыңыз' : 'Нажмите на кружок для просмотра'}
+            </span>
           </div>
 
           <div className="flex items-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar py-1.5">
@@ -709,55 +648,6 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
                     <X className="w-4 h-4 text-amber-300" />
                     <span>{isKz ? 'Жабу' : 'Закрыть'}</span>
                   </button>
-                </div>
-
-                {/* Quick HD Download / Share / Shuffle Bar directly inside Story Viewer */}
-                <div className="flex items-center justify-between gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadActiveSlideHd('download')}
-                    disabled={isDownloadingHd}
-                    className="flex-1 py-1.5 px-2.5 rounded-xl bg-emerald-900/90 hover:bg-emerald-800 text-amber-200 border border-amber-400/40 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-md"
-                    title="Скачать этот сторис в высоком качестве Full HD (1080×1920) без кнопок"
-                  >
-                    {hdSavedFeedback ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                        <span>{isKz ? 'HD сақталды!' : 'Скачано в HD!'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                        <span>{isDownloadingHd ? 'Генерация HD...' : isKz ? 'Скачать HD (1080×1920)' : 'Скачать HD (1080×1920)'}</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadActiveSlideHd('share')}
-                    disabled={isDownloadingHd}
-                    className="py-1.5 px-2.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/40 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0"
-                    title="Отправить сторис в Instagram / WhatsApp Status"
-                  >
-                    <Share2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                    <span>{isKz ? 'Бөлісу' : 'В соцсети'}</span>
-                  </button>
-
-                  {activeSlide.type === 'product' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShuffleSeed((s) => s + 1);
-                        setActiveSlideIndex(0);
-                        setProgress(0);
-                      }}
-                      className="py-1.5 px-2.5 rounded-xl bg-black/50 hover:bg-black/80 text-emerald-200 border border-emerald-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors cursor-pointer shrink-0"
-                      title="Перемешать и показать другие товары"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                    </button>
-                  )}
                 </div>
               </div>
 
