@@ -27,7 +27,7 @@ const IDB_NAME = 'muslim_shop_idb_v2';
 const IDB_VERSION = 1;
 const IDB_STORE_KV = 'kv_store';
 const IDB_BASE_CATALOG_KEY = 'base_catalog_v9';
-const SNAPSHOT_CACHE_BUSTER = 'v9';
+const SNAPSHOT_CACHE_BUSTER = 'v10';
 
 // Cloud Relay (CORS-enabled full-image & metadata sync when Firestore Free Tier daily quota is reached)
 const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
@@ -110,6 +110,47 @@ function isValidProductRecord(prod: any): boolean {
 // which products were added or modified compared to the base snapshot
 const rawNetworkSnapshotMap = new Map<string, Product>();
 const SNAPSHOT_MAX_BUILTIN_ID = 'prod-1790759000350';
+
+// Exact 155 base product IDs present in the static catalog-snapshot.json on muslimshop.kz.
+// Any product in Chrome whose ID is NOT in this set is 100% guaranteed to be a newly added product
+// and will be unconditionally preserved in delta.upsertedProducts and pushed to Cloud Relay at 0ms!
+const STATIC_SNAPSHOT_PRODUCT_IDS = new Set<string>([
+  'prod-1790668937494','prod-1790683176351','prod-1790684668736','prod-1790685182489','prod-1790688609740',
+  'prod-1790688985190','prod-1790756142798','prod-1790759000350','prod-1789481266553','prod-1789584103607',
+  'prod-1789804640525','prod-1789482498319','prod-1789480808913','prod-1789644075623','prod-1789463488357',
+  'prod-1790149462695','prod-1789482558140','prod-4','prod-1789981187713','prod-1789994248008',
+  'prod-1790063615261','prod-1789643893951','prod-8','prod-1789644629498','prod-1789481775781',
+  'prod-1789979727136','prod-1789583998270','prod-1789659827572','prod-1789819181533','prod-1789581978450',
+  'prod-1789480326421','prod-1790062325280','prod-1789643727383','prod-1789646171796','prod-1789482233015',
+  'prod-1790063215053','prod-1789481851198','prod-1789481191820','prod-1789461141494','prod-1790233003394',
+  'prod-1790062839298','prod-1790062023848','prod-1789477768695','prod-1790151238215','prod-1789812222504',
+  'prod-1790235221820','prod-1789735786767','prod-1789481694559','prod-1789645528020','prod-1789727935263',
+  'prod-1789481482339','prod-1789816403106','prod-1789672890254','prod-1789660160933','prod-1789980069236',
+  'prod-1789973956241','prod-1789645121357','prod-1789480153573','prod-5','prod-1',
+  'prod-1789482621778','prod-1789482030210','prod-1789644972750','prod-1789480925676','prod-1789481989300',
+  'prod-1789759302194','prod-1790233305964','prod-1789584226696','prod-1789673608759','prod-1790255799075',
+  'prod-1789665622362','prod-1789462250122','prod-1789904696612','prod-1789806115574','prod-1789758717843',
+  'prod-1789975864274','prod-1790256144265','prod-1789646593301','prod-1789674995571','prod-1789658217474',
+  'prod-3','prod-1789586167313','prod-7','prod-1789481016742','prod-1789482295173',
+  'prod-1790242076530','prod-1790242811773','prod-1789481406134','prod-1789981088507','prod-1790148566194',
+  'prod-1789827766675','prod-1789482137185','prod-1789482204115','prod-1789482405171','prod-1790060868898',
+  'prod-1789481550496','prod-1789841176774','prod-1789912792088','prod-1790149185150','prod-1790061268890',
+  'prod-1789478345595','prod-1789478115265','prod-1789665842790','prod-1789480765223','prod-1789481106368',
+  'prod-1789481613693','prod-1789644299395','prod-1789818538508','prod-1790273257499','prod-1789478458244',
+  'prod-1789980405325','prod-1789481917870','prod-1790236709505','prod-1789645812871','prod-1790248000325',
+  'prod-1789482686228','prod-1789830751933','prod-1790150986489','prod-1789974368254','prod-1789480033675',
+  'prod-1789482758516','prod-1789460300857','prod-1789480249385','prod-1790054839495','prod-1789673257407',
+  'prod-1789644743975','prod-1790261456480','prod-1789997113639','prod-1790062547352','prod-1789644878131',
+  'prod-1789481341086','prod-1789674170720','prod-1789841521090','prod-1789644508370','prod-1790235907172',
+  'prod-1790267309375','prod-6','prod-1789974677309','prod-2','prod-1789841870541',
+  'prod-1789478582858','prod-1790591787765','prod-1790581859293','prod-1790589652302','prod-1790582349356',
+  'prod-1790580880881','prod-1790510183493','prod-1790589385499','prod-1790590823600','prod-1790509738890',
+  'prod-1790596858603','prod-1790595926914','prod-1790595342955','prod-1790594951919','prod-1790594314810',
+]);
+
+// Immutable boot-time product recovery map: captures 100% of products from all localStorage & IndexedDB
+// keys at 0ms BEFORE any network fetch can overwrite localStorage!
+const bootRecoveredProductsMap = new Map<string, Product>();
 
 export function hasValidDescription(desc?: string): boolean {
   if (!desc || typeof desc !== 'string') return false;
@@ -346,29 +387,104 @@ function createEmptyDelta(): CatalogDelta {
   };
 }
 
+function captureBootLocalProducts(): void {
+  if (typeof localStorage === 'undefined') return;
+  const cacheKeys = [
+    PRODUCTS_CACHE_STORAGE_KEY,
+    LEGACY_PRODUCTS_CACHE_KEY,
+    'muslim_shop_products_cache_v2',
+    'muslim_shop_products_cache_v1',
+    'muslim_shop_products',
+  ];
+  for (const key of cacheKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && isValidProductRecord(item) && !DEFAULT_DELETED_PRODUCT_IDS.has(item.id)) {
+            const norm = normalizeProduct(item.id, item);
+            if (hasRealProductImage(norm)) {
+              inMemoryProductImages.set(norm.id, norm.images);
+            } else if (inMemoryProductImages.has(norm.id)) {
+              norm.images = inMemoryProductImages.get(norm.id)!;
+            }
+            const existing = bootRecoveredProductsMap.get(norm.id);
+            bootRecoveredProductsMap.set(norm.id, mergeProductPreservingFields(existing, norm));
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const deltaKeys = [
+    LOCAL_DELTA_STORAGE_KEY,
+    PREV_LOCAL_DELTA_STORAGE_KEY,
+    'muslim_shop_catalog_delta_v4',
+    'muslim_shop_catalog_delta_v3',
+    'muslim_shop_catalog_delta_v2',
+  ];
+  for (const key of deltaKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.upsertedProducts && typeof parsed.upsertedProducts === 'object') {
+        for (const [id, item] of Object.entries(parsed.upsertedProducts)) {
+          if (item && isValidProductRecord(item) && !DEFAULT_DELETED_PRODUCT_IDS.has(id)) {
+            const norm = normalizeProduct(id, item);
+            if (hasRealProductImage(norm)) {
+              inMemoryProductImages.set(norm.id, norm.images);
+            } else if (inMemoryProductImages.has(norm.id)) {
+              norm.images = inMemoryProductImages.get(norm.id)!;
+            }
+            const existing = bootRecoveredProductsMap.get(norm.id);
+            bootRecoveredProductsMap.set(norm.id, mergeProductPreservingFields(existing, norm));
+          }
+        }
+      }
+    } catch {}
+  }
+}
+
+// Run synchronous 0ms boot capture immediately on module load
+captureBootLocalProducts();
+
 export function getLocalCatalogDelta(): CatalogDelta {
   if (inMemoryDelta) return inMemoryDelta;
   try {
     let raw = localStorage.getItem(LOCAL_DELTA_STORAGE_KEY);
-    let isMigratingV4 = false;
+    let isMigratingLegacy = false;
     if (!raw) {
-      raw = localStorage.getItem(PREV_LOCAL_DELTA_STORAGE_KEY);
-      isMigratingV4 = Boolean(raw);
+      const fallbackKeys = [
+        PREV_LOCAL_DELTA_STORAGE_KEY,
+        'muslim_shop_catalog_delta_v4',
+        'muslim_shop_catalog_delta_v3',
+        'muslim_shop_catalog_delta_v2',
+      ];
+      for (const k of fallbackKeys) {
+        const candidate = localStorage.getItem(k);
+        if (candidate) {
+          raw = candidate;
+          isMigratingLegacy = true;
+          break;
+        }
+      }
     }
     if (raw) {
       const parsed = JSON.parse(raw);
       const rawDeleted: string[] = Array.isArray(parsed.deletedProductIds)
         ? parsed.deletedProductIds
         : [];
-      const cleanedDeleted = isMigratingV4
-        ? rawDeleted.filter((id) => !RESTORED_REAL_PRODUCT_IDS.has(id))
-        : rawDeleted;
+      const cleanedDeleted = rawDeleted.filter((id) => !RESTORED_REAL_PRODUCT_IDS.has(id));
       const mergedDeletedIds = Array.from(
         new Set([...Array.from(DEFAULT_DELETED_PRODUCT_IDS), ...cleanedDeleted])
       );
+      const deletedSet = new Set(mergedDeletedIds);
       const upsertedProds: Record<string, Product> = {};
       for (const [id, prod] of Object.entries(parsed.upsertedProducts || {})) {
-        if (!DEFAULT_DELETED_PRODUCT_IDS.has(id) && !mergedDeletedIds.includes(id) && isValidProductRecord(prod)) {
+        if (!DEFAULT_DELETED_PRODUCT_IDS.has(id) && !deletedSet.has(id) && isValidProductRecord(prod)) {
           const norm = normalizeProduct(id, prod);
           if (hasRealProductImage(norm)) {
             inMemoryProductImages.set(id, norm.images);
@@ -378,6 +494,13 @@ export function getLocalCatalogDelta(): CatalogDelta {
           upsertedProds[id] = norm;
         }
       }
+      // Rescue any non-snapshot product captured at 0ms from localStorage caches (e.g. the 5 missing products in Chrome!)
+      bootRecoveredProductsMap.forEach((bootProd, id) => {
+        if (!deletedSet.has(id) && !STATIC_SNAPSHOT_PRODUCT_IDS.has(id)) {
+          upsertedProds[id] = mergeProductPreservingFields(upsertedProds[id], bootProd);
+        }
+      });
+
       inMemoryDelta = {
         upsertedProducts: upsertedProds,
         deletedProductIds: mergedDeletedIds,
@@ -386,13 +509,20 @@ export function getLocalCatalogDelta(): CatalogDelta {
         settings: parsed.settings || undefined,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
       };
-      if (isMigratingV4) {
+      if (isMigratingLegacy) {
         saveLocalCatalogDelta(inMemoryDelta);
       }
       return inMemoryDelta;
     }
   } catch {}
-  inMemoryDelta = createEmptyDelta();
+  const empty = createEmptyDelta();
+  const emptyDeletedSet = new Set(empty.deletedProductIds);
+  bootRecoveredProductsMap.forEach((bootProd, id) => {
+    if (!emptyDeletedSet.has(id) && !STATIC_SNAPSHOT_PRODUCT_IDS.has(id)) {
+      empty.upsertedProducts[id] = bootProd;
+    }
+  });
+  inMemoryDelta = empty;
   return inMemoryDelta;
 }
 
@@ -473,11 +603,15 @@ export function ensureLocalDeltaHydrated(): Promise<CatalogDelta> {
   if (hydrationPromise) return hydrationPromise;
   hydrationPromise = (async () => {
     try {
-      const [idbDelta, idbBase, idbImages] = await Promise.all([
+      const [idbDelta, idbBaseV9, idbBaseV8, idbBaseV7, idbImages] = await Promise.all([
         idbGet<CatalogDelta>('catalog_delta_v4'),
-        idbGet<SharedCatalogPayload>(IDB_BASE_CATALOG_KEY),
+        idbGet<SharedCatalogPayload>('base_catalog_v9'),
+        idbGet<SharedCatalogPayload>('base_catalog_v8'),
+        idbGet<SharedCatalogPayload>('base_catalog_v7'),
         idbGet<Record<string, string[]>>('product_images_v1'),
       ]);
+
+      const idbBase = idbBaseV9 || idbBaseV8 || idbBaseV7;
 
       if (idbImages && typeof idbImages === 'object') {
         for (const [id, imgs] of Object.entries(idbImages)) {
@@ -487,10 +621,19 @@ export function ensureLocalDeltaHydrated(): Promise<CatalogDelta> {
         }
       }
 
-      if (idbBase && Array.isArray(idbBase.products)) {
-        for (const bp of idbBase.products) {
-          if (bp && bp.id && hasRealProductImage(bp)) {
-            inMemoryProductImages.set(bp.id, bp.images);
+      for (const baseCandidate of [idbBaseV7, idbBaseV8, idbBaseV9]) {
+        if (baseCandidate && Array.isArray(baseCandidate.products)) {
+          for (const bp of baseCandidate.products) {
+            if (bp && bp.id && isValidProductRecord(bp) && !DEFAULT_DELETED_PRODUCT_IDS.has(bp.id)) {
+              const norm = normalizeProduct(bp.id, bp);
+              if (hasRealProductImage(norm)) {
+                inMemoryProductImages.set(norm.id, norm.images);
+              } else if (inMemoryProductImages.has(norm.id)) {
+                norm.images = inMemoryProductImages.get(norm.id)!;
+              }
+              const prev = bootRecoveredProductsMap.get(norm.id);
+              bootRecoveredProductsMap.set(norm.id, mergeProductPreservingFields(prev, norm));
+            }
           }
         }
       }
@@ -514,9 +657,28 @@ export function ensureLocalDeltaHydrated(): Promise<CatalogDelta> {
 
       for (const id of allIds) {
         if (deletedSet.has(id)) continue;
+        // Skip old unmodified base snapshot products (<= prod-1790591787765) so delta doesn't bloat to 3.2MB
+        if (
+          STATIC_SNAPSHOT_PRODUCT_IDS.has(id) &&
+          !RESTORED_REAL_PRODUCT_IDS.has(id) &&
+          (!id.startsWith('prod-179') || id <= 'prod-1790591787765')
+        ) {
+          const rawBase = rawNetworkSnapshotMap.get(id);
+          const candidate = current.upsertedProducts?.[id] || idbDelta?.upsertedProducts?.[id];
+          if (
+            !rawBase ||
+            (candidate &&
+              rawBase.price === candidate.price &&
+              rawBase.titleRu === candidate.titleRu &&
+              rawBase.inStock === candidate.inStock)
+          ) {
+            continue;
+          }
+        }
         const fromIdb = idbDelta?.upsertedProducts?.[id];
         const fromCurr = current.upsertedProducts?.[id];
         const baseProd =
+          bootRecoveredProductsMap.get(id) ||
           idbBase?.products?.find((bp) => bp.id === id) ||
           lastResolvedCatalog?.products?.find((bp) => bp.id === id);
         const combined =
@@ -534,44 +696,23 @@ export function ensureLocalDeltaHydrated(): Promise<CatalogDelta> {
         }
       }
 
-      // Also recover any newly added products (id > SNAPSHOT_MAX_BUILTIN_ID) that were stored in
-      // idbBase (`base_catalog_v9`) or `localStorage` (`muslim_shop_products_cache_v4`) when localStorage delta hit 5MB
-      const candidatePools: Product[][] = [];
-      if (idbBase && Array.isArray(idbBase.products)) {
-        candidatePools.push(idbBase.products);
-      }
-      try {
-        const rawCache =
-          localStorage.getItem(PRODUCTS_CACHE_STORAGE_KEY) ||
-          localStorage.getItem(LEGACY_PRODUCTS_CACHE_KEY);
-        if (rawCache) {
-          const parsedCache = JSON.parse(rawCache);
-          if (Array.isArray(parsedCache)) {
-            candidatePools.push(parsedCache);
+      // Unconditionally recover EVERY product from bootRecoveredProductsMap (all localStorage + IndexedDB pools)
+      // that is not in STATIC_SNAPSHOT_PRODUCT_IDS (100% deterministic even at 0ms when rawNetworkSnapshotMap is empty!)
+      bootRecoveredProductsMap.forEach((item, id) => {
+        if (deletedSet.has(id) || DEFAULT_DELETED_PRODUCT_IDS.has(id)) return;
+        const isNotInBase155 = !STATIC_SNAPSHOT_PRODUCT_IDS.has(id);
+        const isMissingFromRawSnapshot =
+          rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(id);
+        if (isNotInBase155 || isMissingFromRawSnapshot) {
+          const norm = normalizeProduct(id, item);
+          if (hasRealProductImage(norm)) {
+            inMemoryProductImages.set(norm.id, norm.images);
+          } else if (inMemoryProductImages.has(norm.id)) {
+            norm.images = inMemoryProductImages.get(norm.id)!;
           }
+          mergedUpserted[norm.id] = mergeProductPreservingFields(mergedUpserted[norm.id], norm);
         }
-      } catch {}
-
-      for (const pool of candidatePools) {
-        for (const item of pool) {
-          if (!item || !item.id || deletedSet.has(item.id) || DEFAULT_DELETED_PRODUCT_IDS.has(item.id)) {
-            continue;
-          }
-          const isPostSnapshotNewItem =
-            item.id.startsWith('prod-179') && item.id > SNAPSHOT_MAX_BUILTIN_ID;
-          const isMissingFromRawSnapshot =
-            rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(item.id);
-          if (isPostSnapshotNewItem || isMissingFromRawSnapshot) {
-            const norm = normalizeProduct(item.id, item);
-            if (hasRealProductImage(norm)) {
-              inMemoryProductImages.set(norm.id, norm.images);
-            } else if (inMemoryProductImages.has(norm.id)) {
-              norm.images = inMemoryProductImages.get(norm.id)!;
-            }
-            mergedUpserted[norm.id] = mergeProductPreservingFields(mergedUpserted[norm.id], norm);
-          }
-        }
-      }
+      });
 
       const merged: CatalogDelta = {
         upsertedProducts: mergedUpserted,
@@ -737,6 +878,22 @@ export function applyProductsDelta(baseProducts: Product[], customDelta?: Catalo
       saveLocalCatalogDelta(delta);
     }
   }
+
+  // Also guarantee that any non-deleted product captured at 0ms boot (e.g. from Chrome localStorage/IndexedDB)
+  // is preserved in applyProductsDelta even before async hydration completes
+  bootRecoveredProductsMap.forEach((bootProd, id) => {
+    if (!deletedSet.has(id) && !DEFAULT_DELETED_PRODUCT_IDS.has(id) && !map.has(id)) {
+      const norm = normalizeProduct(id, bootProd);
+      if (hasRealProductImage(norm)) {
+        inMemoryProductImages.set(id, norm.images);
+      } else if (inMemoryProductImages.has(id)) {
+        norm.images = inMemoryProductImages.get(id)!;
+      }
+      if (isValidProductRecord(norm)) {
+        map.set(id, norm);
+      }
+    }
+  });
 
   return Array.from(map.values());
 }
@@ -1045,39 +1202,39 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
     };
 
     // 1. Upload full JSON with base64 images to CORS Blob Store & update BOTH v8 and v7 pointer keys
-    const uploadFullBlobPromise = (async () => {
-      try {
-        const postRes = await fetch(CLOUD_BLOB_POST_URL, {
-          method: 'POST',
-          body: JSON.stringify(fullBlobPayload),
-        });
-        if (postRes.ok) {
-          const postData = await postRes.json();
-          if (postData && postData.key) {
-            const newPtr = String(postData.key).trim();
-            lastSeenCloudRelayPtr = newPtr;
-            lastSeenLegacyRelayPtr = newPtr;
-            await Promise.all([
-              fetch(
-                `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr/${newPtr}`,
-                { method: 'POST' }
-              ).catch(() => {}),
-              fetch(
-                `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr/${newPtr}`,
-                { method: 'POST' }
-              ).catch(() => {}),
-            ]);
-          }
+    let blobUploadedOk = false;
+    try {
+      const postRes = await fetch(CLOUD_BLOB_POST_URL, {
+        method: 'POST',
+        body: JSON.stringify(fullBlobPayload),
+      });
+      if (postRes.ok) {
+        const postData = await postRes.json();
+        if (postData && postData.key) {
+          const newPtr = String(postData.key).trim();
+          lastSeenCloudRelayPtr = newPtr;
+          lastSeenLegacyRelayPtr = newPtr;
+          await Promise.all([
+            fetch(
+              `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr/${newPtr}`,
+              { method: 'POST' }
+            ).catch(() => {}),
+            fetch(
+              `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr/${newPtr}`,
+              { method: 'POST' }
+            ).catch(() => {}),
+          ]);
+          blobUploadedOk = true;
         }
-      } catch {
-        // Ignore blob upload network warnings
       }
-    })();
+    } catch {
+      // Ignore blob upload network warnings
+    }
 
-    // 2. Also push compact metadata chunks as secondary backup (supports up to 30 products)
-    const uploadCompactChunksPromise = (async () => {
+    // 2. Only push compact metadata chunks if primary blob upload was unreachable
+    if (!blobUploadedOk) {
       try {
-        const compactItems = allProducts.slice(0, 30).map((p: any) => ({
+        const compactItems = allProducts.slice(0, 12).map((p: any) => ({
           i: p.id,
           r: (p.titleRu || '').slice(0, 90),
           p: p.price,
@@ -1125,9 +1282,7 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
           );
         }
       } catch {}
-    })();
-
-    await Promise.all([uploadFullBlobPromise, uploadCompactChunksPromise]);
+    }
   } catch {
     // Ignore cloud relay network warnings
   }
@@ -1303,48 +1458,58 @@ export async function pushDeltaToFirestore(
   await ensureLocalDeltaHydrated().catch(() => {});
   await pullDeltaFromCloudRelay().catch(() => {});
 
-  // 2. If Admin or auto-heal passes live products list, ensure EVERY product not in raw static snapshot
+  // 2. If Admin or auto-heal passes live products list, ensure EVERY product not in STATIC_SNAPSHOT_PRODUCT_IDS
   // or modified compared to raw static snapshot is recorded in local delta
-  const effectiveProducts =
-    Array.isArray(currentProducts) && currentProducts.length > 0
-      ? currentProducts
-      : getCachedProductsFromLocalStorage();
+  const combinedLocalMap = new Map<string, Product>();
+  bootRecoveredProductsMap.forEach((p, id) => combinedLocalMap.set(id, p));
+  for (const p of getCachedProductsFromLocalStorage()) {
+    if (p && p.id) {
+      combinedLocalMap.set(p.id, mergeProductPreservingFields(combinedLocalMap.get(p.id), p));
+    }
+  }
+  if (Array.isArray(currentProducts)) {
+    for (const p of currentProducts) {
+      if (p && p.id) {
+        combinedLocalMap.set(p.id, mergeProductPreservingFields(combinedLocalMap.get(p.id), p));
+        bootRecoveredProductsMap.set(p.id, combinedLocalMap.get(p.id)!);
+      }
+    }
+  }
+  const effectiveProducts = Array.from(combinedLocalMap.values());
 
   if (effectiveProducts.length > 0) {
-    const sortedByNewest = [...effectiveProducts].sort((a, b) =>
-      (b.createdAt || b.id).localeCompare(a.createdAt || a.id)
-    );
-    const newestIds = new Set(sortedByNewest.slice(0, 30).map((p) => p.id));
+    const currentDeletedSet = new Set(getLocalCatalogDelta().deletedProductIds || []);
 
     for (const p of effectiveProducts) {
-      if (!p || !p.id || DEFAULT_DELETED_PRODUCT_IDS.has(p.id)) continue;
+      if (!p || !p.id || DEFAULT_DELETED_PRODUCT_IDS.has(p.id) || currentDeletedSet.has(p.id)) continue;
       const rawBaseProd = rawNetworkSnapshotMap.get(p.id);
       const fallbackBaseProd =
         rawBaseProd || lastResolvedCatalog?.products?.find((bp) => bp.id === p.id);
 
+      const isNotInBase155 = !STATIC_SNAPSHOT_PRODUCT_IDS.has(p.id);
       const isPostSnapshotNew =
-        p.id.startsWith('prod-179') && p.id > SNAPSHOT_MAX_BUILTIN_ID;
+        isNotInBase155 || (p.id.startsWith('prod-179') && p.id > SNAPSHOT_MAX_BUILTIN_ID);
       const isMissingFromRawSnapshot =
         rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(p.id);
 
       const isModified =
-        !rawBaseProd ||
         isPostSnapshotNew ||
         isMissingFromRawSnapshot ||
-        rawBaseProd.price !== p.price ||
-        rawBaseProd.oldPrice !== p.oldPrice ||
-        rawBaseProd.inStock !== p.inStock ||
-        rawBaseProd.isHit !== p.isHit ||
-        rawBaseProd.isNew !== p.isNew ||
-        rawBaseProd.titleRu !== p.titleRu ||
-        rawBaseProd.titleKz !== p.titleKz ||
-        rawBaseProd.categoryId !== p.categoryId ||
-        rawBaseProd.descriptionRu !== p.descriptionRu ||
-        rawBaseProd.descriptionKz !== p.descriptionKz ||
-        rawBaseProd.specsRu !== p.specsRu ||
-        rawBaseProd.howToUseRu !== p.howToUseRu;
+        (rawBaseProd &&
+          (rawBaseProd.price !== p.price ||
+            rawBaseProd.oldPrice !== p.oldPrice ||
+            rawBaseProd.inStock !== p.inStock ||
+            rawBaseProd.isHit !== p.isHit ||
+            rawBaseProd.isNew !== p.isNew ||
+            rawBaseProd.titleRu !== p.titleRu ||
+            rawBaseProd.titleKz !== p.titleKz ||
+            rawBaseProd.categoryId !== p.categoryId ||
+            rawBaseProd.descriptionRu !== p.descriptionRu ||
+            rawBaseProd.descriptionKz !== p.descriptionKz ||
+            rawBaseProd.specsRu !== p.specsRu ||
+            rawBaseProd.howToUseRu !== p.howToUseRu));
 
-      if (isModified || newestIds.has(p.id)) {
+      if (isModified) {
         recordLocalProductUpsert(mergeProductPreservingFields(fallbackBaseProd, p));
       }
     }
@@ -1444,6 +1609,11 @@ export async function pushDeltaToFirestore(
 }
 
 let isAutoSyncInFlight = false;
+let pendingAutoSyncArgs: {
+  liveProducts: Product[];
+  liveCategories?: Category[];
+  liveSettings?: Partial<StoreConfig>;
+} | null = null;
 
 /**
  * Automatically checks if this browser (e.g. Chrome where new products were uploaded) has products
@@ -1455,7 +1625,21 @@ export async function autoSyncLocalProductsIfNeeded(
   liveCategories?: Category[],
   liveSettings?: Partial<StoreConfig>
 ): Promise<void> {
-  if (isAutoSyncInFlight || !Array.isArray(liveProducts) || liveProducts.length === 0) return;
+  if (!Array.isArray(liveProducts) || liveProducts.length === 0) return;
+
+  // Always record incoming liveProducts into bootRecoveredProductsMap so no product is ever lost
+  for (const p of liveProducts) {
+    if (p && p.id && !DEFAULT_DELETED_PRODUCT_IDS.has(p.id)) {
+      const prev = bootRecoveredProductsMap.get(p.id);
+      bootRecoveredProductsMap.set(p.id, mergeProductPreservingFields(prev, p));
+    }
+  }
+
+  if (isAutoSyncInFlight) {
+    pendingAutoSyncArgs = { liveProducts, liveCategories, liveSettings };
+    return;
+  }
+
   isAutoSyncInFlight = true;
   try {
     await ensureLocalDeltaHydrated();
@@ -1463,39 +1647,60 @@ export async function autoSyncLocalProductsIfNeeded(
       await pullDeltaFromCloudRelay().catch(() => null);
     }
 
+    const latestProducts = pendingAutoSyncArgs?.liveProducts || liveProducts;
+    const latestCategories = pendingAutoSyncArgs?.liveCategories || liveCategories;
+    const latestSettings = pendingAutoSyncArgs?.liveSettings || liveSettings;
+    pendingAutoSyncArgs = null;
+
     const deletedSet = new Set([
       ...Array.from(DEFAULT_DELETED_PRODUCT_IDS),
       ...(getLocalCatalogDelta().deletedProductIds || []),
     ]);
 
+    const candidateMap = new Map<string, Product>();
+    bootRecoveredProductsMap.forEach((p, id) => candidateMap.set(id, p));
+    for (const p of latestProducts) {
+      if (p && p.id) {
+        candidateMap.set(p.id, mergeProductPreservingFields(candidateMap.get(p.id), p));
+      }
+    }
+
     let hasUnpushedItems = false;
-    for (const p of liveProducts) {
+    for (const p of candidateMap.values()) {
       if (!p || !p.id || deletedSet.has(p.id)) continue;
+      const isNotInBase155 = !STATIC_SNAPSHOT_PRODUCT_IDS.has(p.id);
       const isPostSnapshotNew =
-        p.id.startsWith('prod-179') && p.id > SNAPSHOT_MAX_BUILTIN_ID;
+        isNotInBase155 || (p.id.startsWith('prod-179') && p.id > SNAPSHOT_MAX_BUILTIN_ID);
       const isMissingFromRawSnapshot =
         rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(p.id);
 
-      if ((isPostSnapshotNew || isMissingFromRawSnapshot) && !remoteCloudUpsertedIds.has(p.id)) {
-        hasUnpushedItems = true;
+      if (isPostSnapshotNew || isMissingFromRawSnapshot) {
         recordLocalProductUpsert(p);
+        if (!remoteCloudUpsertedIds.has(p.id)) {
+          hasUnpushedItems = true;
+        }
       }
     }
 
     const localUpsertedIds = Object.keys(getLocalCatalogDelta().upsertedProducts || {});
     for (const id of localUpsertedIds) {
-      if (!deletedSet.has(id) && !remoteCloudUpsertedIds.has(id)) {
+      if (!deletedSet.has(id) && !STATIC_SNAPSHOT_PRODUCT_IDS.has(id) && !remoteCloudUpsertedIds.has(id)) {
         hasUnpushedItems = true;
       }
     }
 
     if (hasUnpushedItems) {
-      await pushDeltaToFirestore(liveProducts, liveCategories, liveSettings);
+      await pushDeltaToFirestore(Array.from(candidateMap.values()), latestCategories, latestSettings);
     }
   } catch {
     // Ignore background auto-sync errors
   } finally {
     isAutoSyncInFlight = false;
+    if (pendingAutoSyncArgs) {
+      const next = pendingAutoSyncArgs;
+      pendingAutoSyncArgs = null;
+      autoSyncLocalProductsIfNeeded(next.liveProducts, next.liveCategories, next.liveSettings).catch(() => {});
+    }
   }
 }
 

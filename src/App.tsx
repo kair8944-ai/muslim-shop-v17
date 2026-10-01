@@ -1410,7 +1410,9 @@ export default function App() {
             >
               <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
               <span>
-                {lang === 'kz' ? 'Артқа • Барлық өнімдерге оралу' : 'Назад ко всем товарам (157)'}
+                {lang === 'kz'
+                  ? `Артқа • Барлық өнімдерге оралу (${products.length})`
+                  : `Назад ко всем товарам (${products.length})`}
               </span>
             </button>
 
