@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { AccessibilitySettings, Language, Product, StoreConfig } from '../types';
 import { formatPrice, getProductDirectUrl, copyTextToClipboard, shareOrCopyProduct } from '../utils/formatters';
+import { applyProductSeoMeta } from '../utils/seoMeta';
 import { getFrequentlyBoughtTogether } from '../utils/recommendations';
 import {
   getProductKazakhTranslation,
@@ -220,6 +221,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const howToUse = isKz
     ? (translatedKzData?.howToUseKz || product.howToUseKz || product.howToUseRu)
     : product.howToUseRu;
+
+  // Dynamically generate SEO meta tags, OpenGraph, Twitter Card & Schema.org Product JSON-LD for this product
+  useEffect(() => {
+    applyProductSeoMeta(product, config, currentLang, title, description);
+  }, [product, config, currentLang, title, description]);
 
   const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 25, 225));
   const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 25, 100));

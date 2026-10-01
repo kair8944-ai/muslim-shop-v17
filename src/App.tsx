@@ -65,6 +65,7 @@ import {
   extractProductIdFromUrl,
   getProductDirectUrl,
 } from './utils/formatters';
+import { applyProductSeoMeta, resetStoreSeoMeta } from './utils/seoMeta';
 
 const FALLBACK_PLACEHOLDER_IMAGE = 'photo-1584308666744-24d5c474f2ae';
 
@@ -591,8 +592,7 @@ export default function App() {
       const existing = findProductMatch(products, targetId);
       if (existing) {
         setSelectedProductForDetail(existing);
-        const title = (lang === 'kz' && existing.titleKz?.trim()) ? existing.titleKz : existing.titleRu;
-        document.title = `${title} — ${config.storeName}`;
+        applyProductSeoMeta(existing, config, lang);
         return;
       }
 
@@ -604,8 +604,7 @@ export default function App() {
           const cachedMatch = findProductMatch(cachedList, targetId);
           if (cachedMatch) {
             setSelectedProductForDetail(cachedMatch);
-            const title = (lang === 'kz' && cachedMatch.titleKz?.trim()) ? cachedMatch.titleKz : cachedMatch.titleRu;
-            document.title = `${title} — ${config.storeName}`;
+            applyProductSeoMeta(cachedMatch, config, lang);
             return;
           }
         }
@@ -619,8 +618,7 @@ export default function App() {
 
         if (directProd) {
           setSelectedProductForDetail(directProd);
-          const title = (lang === 'kz' && directProd.titleKz?.trim()) ? directProd.titleKz : directProd.titleRu;
-          document.title = `${title} — ${config.storeName}`;
+          applyProductSeoMeta(directProd, config, lang);
 
           // Also inject into products list if not yet included so catalog renders it
           setProducts((prev) => {
@@ -705,24 +703,30 @@ export default function App() {
     setSelectedProductForDetail(product);
     recordRecentlyViewed(product);
     trackProductView(product.id, product.titleRu);
+    applyProductSeoMeta(product, config, lang);
     try {
       const targetUrl = getProductDirectUrl(product.id);
       window.history.pushState({ productId: product.id }, '', targetUrl);
-      const title = (lang === 'kz' && product.titleKz?.trim()) ? product.titleKz : product.titleRu;
-      document.title = `${title} — ${config.storeName}`;
     } catch {}
   };
 
   const handleCloseDetail = useCallback(() => {
     setSelectedProductForDetail(null);
+    resetStoreSeoMeta(config, lang);
     try {
       const url = new URL(window.location.href);
       ['p', 'product', 'prod', 'id', 'sku', 'item'].forEach((k) => url.searchParams.delete(k));
       const cleanPath = url.pathname + (url.search ? url.search : '');
       window.history.replaceState({ muslimShopGuard: true }, '', cleanPath);
-      document.title = 'MUSLIM SHOP — Купить халяль товары и витамины iHerb в Атырау | Бутик №24';
     } catch {}
-  }, []);
+  }, [config, lang]);
+
+  // Ensure store-level SEO meta tags are restored whenever no product detail modal is open
+  useEffect(() => {
+    if (!selectedProductForDetail) {
+      resetStoreSeoMeta(config, lang);
+    }
+  }, [selectedProductForDetail, config, lang]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
