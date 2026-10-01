@@ -14,6 +14,7 @@ import { BoutiqueStories } from './components/BoutiqueStories';
 import { CategoryFilter } from './components/CategoryFilter';
 import { SymptomSelector } from './components/SymptomSelector';
 import { SmartHealthBundles } from './components/SmartHealthBundles';
+import { RecentlyViewedSection } from './components/RecentlyViewedSection';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
@@ -313,6 +314,16 @@ export default function App() {
   const [favorites, setFavorites] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem('muslim_shop_favorites');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Recently Viewed state (up to 12 products)
+  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>(() => {
+    try {
+      const saved = localStorage.getItem('muslim_shop_recently_viewed');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -651,8 +662,42 @@ export default function App() {
     trackVisit({ page: 'Каталог бутика', lang, isInitialLoad: true });
   }, []);
 
+  const recordRecentlyViewed = useCallback((product: Product) => {
+    if (!product || !product.id) return;
+    setRecentlyViewed((prev) => {
+      const next = [product, ...prev.filter((p) => p.id !== product.id)].slice(0, 12);
+      try {
+        localStorage.setItem('muslim_shop_recently_viewed', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleRemoveRecentlyViewed = useCallback((productId: string) => {
+    setRecentlyViewed((prev) => {
+      const next = prev.filter((p) => p.id !== productId);
+      try {
+        localStorage.setItem('muslim_shop_recently_viewed', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleClearRecentlyViewed = useCallback(() => {
+    setRecentlyViewed([]);
+    try {
+      localStorage.setItem('muslim_shop_recently_viewed', JSON.stringify([]));
+    } catch {}
+    showToast(
+      lang === 'kz'
+        ? 'Қарау тарихы тазартылды'
+        : 'История просмотренных товаров очищена'
+    );
+  }, [lang]);
+
   const handleOpenDetail = (product: Product) => {
     setSelectedProductForDetail(product);
+    recordRecentlyViewed(product);
     trackProductView(product.id, product.titleRu);
     try {
       const targetUrl = getProductDirectUrl(product.id);
@@ -1028,6 +1073,28 @@ export default function App() {
       });
       return changed ? next : prev;
     });
+
+    setRecentlyViewed((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev
+        .map((item) => {
+          const fresh = byId.get(item.id);
+          if (fresh) {
+            if (!areProductsDeepEqual(item, fresh)) changed = true;
+            return fresh;
+          }
+          return item;
+        })
+        .filter((item) => byId.has(item.id));
+      if (next.length !== prev.length) changed = true;
+      if (changed) {
+        try {
+          localStorage.setItem('muslim_shop_recently_viewed', JSON.stringify(next));
+        } catch {}
+      }
+      return changed ? next : prev;
+    });
   }, [products]);
 
   const handleToggleCompare = (product: Product) => {
@@ -1110,12 +1177,41 @@ export default function App() {
       });
   }, [products, selectedCategoryId, selectedSymptom, searchQuery, sortBy, categoriesMap]);
 
-  const scrollToCatalog = () => {
-    const el = document.getElementById('catalog-section');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
+  const scrollToCatalog = useCallback(() => {
+    const performScroll = () => {
+      const el = document.getElementById('catalog-section');
+      if (!el) return;
+      const headerEl = document.getElementById('main-header');
+      const headerHeight = headerEl ? headerEl.getBoundingClientRect().height : 72;
+      const rect = el.getBoundingClientRect();
+      const targetTop = Math.max(0, rect.top + window.scrollY - headerHeight - 8);
+      window.scrollTo({ top: targetTop, behavior: 'smooth' });
+    };
+    requestAnimationFrame(() => {
+      performScroll();
+      setTimeout(performScroll, 80);
+    });
+  }, []);
+
+  const handleSelectCategoryAndScroll = useCallback(
+    (catId: string) => {
+      setSelectedCategoryId(catId);
+      setSelectedSymptom('all');
+      scrollToCatalog();
+    },
+    [scrollToCatalog]
+  );
+
+  const handleSelectSymptomAndScroll = useCallback(
+    (symId: string) => {
+      setSelectedSymptom(symId);
+      if (symId !== 'all') {
+        setSelectedCategoryId('cat-all');
+      }
+      scrollToCatalog();
+    },
+    [scrollToCatalog]
+  );
 
   // Progressive rendering: render first 24 cards immediately for instant paint, then mount the rest smoothly
   useEffect(() => {
@@ -1237,14 +1333,8 @@ export default function App() {
         products={products}
         categories={categories}
         productCounts={productCounts}
-        onSelectCategory={(catId) => {
-          setSelectedCategoryId(catId);
-          setSelectedSymptom('all');
-        }}
-        onSelectSymptom={(symId) => {
-          setSelectedSymptom(symId);
-          setSelectedCategoryId('cat-all');
-        }}
+        onSelectCategory={handleSelectCategoryAndScroll}
+        onSelectSymptom={handleSelectSymptomAndScroll}
         onOpenProduct={handleOpenDetail}
         onAddToCart={handleAddToCart}
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
@@ -1261,10 +1351,7 @@ export default function App() {
         onScrollToCatalog={scrollToCatalog}
         categories={categories}
         selectedCategoryId={selectedCategoryId}
-        onSelectCategory={(catId) => {
-          setSelectedCategoryId(catId);
-          setSelectedSymptom('all');
-        }}
+        onSelectCategory={handleSelectCategoryAndScroll}
       />
 
       {/* 8. Quick View Boutique Stories Bar right on the website */}
@@ -1274,51 +1361,32 @@ export default function App() {
         lang={lang}
         onOpenProduct={handleOpenDetail}
         onAddToCart={handleAddToCart}
-        onSelectCategory={(catId) => {
-          setSelectedCategoryId(catId);
-          setSelectedSymptom('all');
-        }}
+        onSelectCategory={handleSelectCategoryAndScroll}
       />
 
       {/* Category Nav Filter — All visible side-by-side without horizontal scrolling */}
       <CategoryFilter
         categories={categories}
         selectedCategoryId={selectedCategoryId}
-        onSelectCategory={(catId) => {
-          setSelectedCategoryId(catId);
-          setSelectedSymptom('all');
-        }}
+        onSelectCategory={handleSelectCategoryAndScroll}
         lang={lang}
         productCounts={productCounts}
         onOpenAdminCategories={() => setIsAdminOpen(true)}
       />
 
-      {/* 2. Smart Product Selector by Symptom / Health Goal («Что вас беспокоит?») */}
-      <SymptomSelector
-        products={products}
-        selectedSymptom={selectedSymptom}
-        onSelectSymptom={(symId) => {
-          setSelectedSymptom(symId);
-          if (symId !== 'all') {
-            setSelectedCategoryId('cat-all');
-          }
-        }}
-        lang={lang}
-        accessibility={accessibility}
-      />
-
-      {/* 3. Smart Curated Health Courses & Bundles with 10% Discount */}
-      <SmartHealthBundles
-        products={products}
-        config={config}
-        lang={lang}
-        selectedSymptom={selectedSymptom}
-        onOpenProduct={handleOpenDetail}
-        onAddBundleToCart={handleAddBundleToCart}
-      />
+      {/* 2. Smart Product Selector by Symptom / Health Goal («Что вас беспокоит?») — Hidden when a specific category is selected so products appear immediately */}
+      {selectedCategoryId === 'cat-all' && (
+        <SymptomSelector
+          products={products}
+          selectedSymptom={selectedSymptom}
+          onSelectSymptom={handleSelectSymptomAndScroll}
+          lang={lang}
+          accessibility={accessibility}
+        />
+      )}
 
       {/* Main Catalog Content */}
-      <main id="catalog-section" className="max-w-7xl mx-auto px-4 py-9 sm:py-14 flex-1 w-full">
+      <main id="catalog-section" className="scroll-mt-24 max-w-7xl mx-auto px-4 py-7 sm:py-12 flex-1 w-full">
         {/* Active Filter / Search Back & Close Bar */}
         {(selectedCategoryId !== 'cat-all' || selectedSymptom !== 'all' || searchQuery.trim() !== '') && (
           <div
@@ -1472,6 +1540,27 @@ export default function App() {
         )}
       </main>
 
+      {/* Smart Curated Health Courses & Bundles with 10% Discount */}
+      <SmartHealthBundles
+        products={products}
+        config={config}
+        lang={lang}
+        selectedSymptom={selectedSymptom}
+        onOpenProduct={handleOpenDetail}
+        onAddBundleToCart={handleAddBundleToCart}
+      />
+
+      {/* Recently Viewed Products Strip */}
+      <RecentlyViewedSection
+        items={recentlyViewed}
+        cartProductIds={new Set(cart.map((c) => c.product.id))}
+        lang={lang}
+        onOpenProduct={handleOpenDetail}
+        onAddToCart={handleAddToCart}
+        onRemoveItem={handleRemoveRecentlyViewed}
+        onClearAll={handleClearRecentlyViewed}
+      />
+
       {/* Floating Action Buttons for Desktop: WhatsApp & Phone quick call (above bottom nav) */}
       <div id="floating-actions" className="hidden md:flex fixed bottom-22 right-5 z-40 flex-col gap-2.5">
         <a
@@ -1568,6 +1657,7 @@ export default function App() {
         <CartDrawer
           items={cart}
           allProducts={products}
+          recentlyViewed={recentlyViewed}
           config={config}
           lang={lang}
           onUpdateQuantity={handleUpdateQuantity}
@@ -1778,14 +1868,12 @@ export default function App() {
         categories={categories}
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={(catId) => {
-          setSelectedCategoryId(catId);
-          setSelectedSymptom('all');
           setBottomDrawerMode(null);
+          handleSelectCategoryAndScroll(catId);
         }}
         onSelectSymptom={(symId) => {
-          setSelectedSymptom(symId);
-          setSelectedCategoryId('cat-all');
           setBottomDrawerMode(null);
+          handleSelectSymptomAndScroll(symId);
         }}
         onOpenProduct={handleOpenDetail}
         onAddToCart={handleAddToCart}

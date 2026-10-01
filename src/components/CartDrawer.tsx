@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Minus, Trash2, ShoppingBag, MessageCircle, MapPin, Truck, Check, Sparkles, ArrowLeft } from 'lucide-react';
+import { X, Plus, Minus, Trash2, ShoppingBag, MessageCircle, MapPin, Truck, Check, Sparkles, ArrowLeft, Clock } from 'lucide-react';
 import { CartItem, DeliveryMethod, Language, Product, StoreConfig } from '../types';
 import { formatPrice, generateWhatsAppOrderUrl } from '../utils/formatters';
 import { getCartRecommendations } from '../utils/recommendations';
@@ -8,6 +8,7 @@ import { getCartRecommendations } from '../utils/recommendations';
 interface CartDrawerProps {
   items: CartItem[];
   allProducts?: Product[];
+  recentlyViewed?: Product[];
   config: StoreConfig;
   lang: Language;
   onUpdateQuantity: (productId: string, delta: number) => void;
@@ -21,6 +22,7 @@ interface CartDrawerProps {
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   items,
   allProducts = [],
+  recentlyViewed = [],
   config,
   lang,
   onUpdateQuantity,
@@ -137,8 +139,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Content */}
         {items.length === 0 ? (
-          <div id="cart-empty-state" className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-[#092018] border border-amber-500/25 flex items-center justify-center text-amber-300 mb-4">
+          <div id="cart-empty-state" className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-full bg-[#092018] border border-amber-500/25 flex items-center justify-center text-amber-300 mb-4 shrink-0">
               <ShoppingBag className="w-8 h-8" />
             </div>
             <h3 className="text-lg sm:text-xl font-serif font-extrabold text-white">
@@ -156,6 +158,57 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             >
               {lang === 'kz' ? 'Каталогқа оралу' : 'Перейти к покупкам'}
             </button>
+
+            {recentlyViewed.length > 0 && onAddToCart && (
+              <div className="w-full text-left mt-8 pt-6 border-t border-amber-500/20 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-amber-300">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <span>{lang === 'kz' ? 'Сіз жақында қарадыңыз:' : 'Вы недавно смотрели:'}</span>
+                </div>
+                <div className="space-y-2">
+                  {recentlyViewed.slice(0, 4).map((rv) => {
+                    const rvTitle = lang === 'kz' && rv.titleKz?.trim() ? rv.titleKz : rv.titleRu;
+                    return (
+                      <div
+                        key={rv.id}
+                        className="p-2.5 rounded-2xl bg-[#092018] border border-amber-500/25 flex items-center justify-between gap-2.5"
+                      >
+                        <div
+                          onClick={() => {
+                            if (onOpenDetail) {
+                              onClose();
+                              onOpenDetail(rv);
+                            }
+                          }}
+                          className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                        >
+                          <img
+                            src={rv.images?.[0]}
+                            alt={rvTitle}
+                            referrerPolicy="no-referrer"
+                            className="w-11 h-14 rounded-xl object-cover border border-amber-500/25 bg-stone-900 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-white line-clamp-2">{rvTitle}</p>
+                            <p className="text-xs font-extrabold text-amber-300 font-mono tabular-nums mt-0.5">
+                              {formatPrice(rv.price)}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onAddToCart(rv)}
+                          className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-extrabold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{lang === 'kz' ? 'Қосу' : 'В корзину'}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div id="cart-scroll-body" className="flex-1 overflow-y-auto overscroll-contain">
