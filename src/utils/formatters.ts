@@ -116,6 +116,10 @@ export function generateWhatsAppOrderUrl(
   lang: Language
 ): string {
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+  const hasBundleDiscount = totalQty >= 3;
+  const discountAmount = hasBundleDiscount ? Math.round(total * 0.1) : 0;
+  const finalTotal = total - discountAmount;
 
   const deliveryLabelsRu = {
     delivery: 'Курьерская доставка по г. Атырау',
@@ -136,7 +140,13 @@ export function generateWhatsAppOrderUrl(
       const p = item.product;
       message += `${index + 1}. ${p.titleKz} (арт: ${p.sku}) — ${item.quantity} дана × ${formatPrice(p.price)} = ${formatPrice(p.price * item.quantity)}\n`;
     });
-    message += `\nБарлығы: ${formatPrice(total)}\n`;
+    if (hasBundleDiscount) {
+      message += `\nСомасы: ${formatPrice(total)}\n`;
+      message += `Кешенді жеңілдік (-10%): -${formatPrice(discountAmount)}\n`;
+      message += `Төлем сомасы: ${formatPrice(finalTotal)}\n`;
+    } else {
+      message += `\nБарлығы: ${formatPrice(finalTotal)}\n`;
+    }
     message += `Тапсырыс беруші: ${customer.name}\n`;
     message += `Телефон: ${customer.phone}\n`;
     message += `Жеткізу түрі: ${deliveryLabelsKz[customer.deliveryMethod]}\n`;
@@ -153,7 +163,13 @@ export function generateWhatsAppOrderUrl(
       const p = item.product;
       message += `${index + 1}. ${p.titleRu} (арт: ${p.sku}) — ${item.quantity} шт × ${formatPrice(p.price)} = ${formatPrice(p.price * item.quantity)}\n`;
     });
-    message += `\nИтого к оплате: ${formatPrice(total)}\n`;
+    if (hasBundleDiscount) {
+      message += `\nСумма без скидки: ${formatPrice(total)}\n`;
+      message += `Скидка за комплекс (-10% от 3 товаров): -${formatPrice(discountAmount)}\n`;
+      message += `Итого к оплате со скидкой: ${formatPrice(finalTotal)}\n`;
+    } else {
+      message += `\nИтого к оплате: ${formatPrice(finalTotal)}\n`;
+    }
     message += `Покупатель: ${customer.name}\n`;
     message += `Телефон: ${customer.phone}\n`;
     message += `Способ получения: ${deliveryLabelsRu[customer.deliveryMethod]}\n`;

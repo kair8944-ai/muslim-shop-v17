@@ -52,6 +52,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   }, [onClose]);
 
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+  const hasBundleDiscount = totalQty >= 3;
+  const discountAmount = hasBundleDiscount ? Math.round(total * 0.1) : 0;
+  const finalTotal = total - discountAmount;
 
   const cartRecommendations = useMemo(
     () =>
@@ -169,6 +173,41 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <Trash2 className="w-3.5 h-3.5 shrink-0" />
                 <span>{lang === 'kz' ? 'Себетті тазалау' : 'Очистить корзину'}</span>
               </button>
+            </div>
+
+            {/* Complex Discount Progress / Active Banner */}
+            <div className="mx-4 mt-3.5 p-3 rounded-2xl bg-[#0A251C] border border-amber-500/30">
+              {hasBundleDiscount ? (
+                <div className="flex items-center justify-between gap-2 text-xs sm:text-sm">
+                  <span className="font-bold text-emerald-300">
+                    {lang === 'kz'
+                      ? '✨ Кешенді жеңілдік -10% іске қосылды!'
+                      : '✨ Скидка -10% за комплексный набор активирована!'}
+                  </span>
+                  <span className="font-mono tabular-nums font-extrabold text-amber-300 shrink-0">
+                    -{formatPrice(discountAmount)}
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-stone-200 font-medium">
+                      {lang === 'kz'
+                        ? `Тағы ${3 - totalQty} тауар қосып, жиынтыққа -10% жеңілдік алыңыз`
+                        : `Добавьте ещё ${3 - totalQty} ${3 - totalQty === 1 ? 'товар' : 'товара'} для скидки -10% на комплекс`}
+                    </span>
+                    <span className="font-mono tabular-nums font-bold text-amber-300 shrink-0">
+                      {totalQty}/3
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-[#05140F] overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 transition-all duration-300"
+                      style={{ width: `${Math.min(100, (totalQty / 3) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* List of items with clear quantity & labeled Delete button */}
@@ -409,13 +448,34 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               )}
 
               {/* Total calculation */}
-              <div className="pt-2.5 border-t border-amber-500/20 flex items-baseline justify-between">
-                <span className="text-xs sm:text-sm font-semibold text-emerald-200/85">
-                  {lang === 'kz' ? 'Барлық сома:' : 'Итого к оплате:'}
-                </span>
-                <span className="text-xl sm:text-2xl font-black text-amber-300 font-serif">
-                  {formatPrice(total)}
-                </span>
+              <div className="pt-2.5 border-t border-amber-500/20 space-y-1.5">
+                {hasBundleDiscount && (
+                  <div className="flex items-center justify-between text-xs text-emerald-300">
+                    <span>
+                      {lang === 'kz'
+                        ? 'Кешенді жеңілдік (-10%):'
+                        : 'Скидка за комплекс (-10% от 3 шт.):'}
+                    </span>
+                    <span className="font-mono tabular-nums font-bold">
+                      -{formatPrice(discountAmount)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs sm:text-sm font-semibold text-emerald-200/85">
+                    {lang === 'kz' ? 'Барлық сома:' : 'Итого к оплате:'}
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    {hasBundleDiscount && (
+                      <span className="text-xs sm:text-sm font-mono tabular-nums text-stone-400 line-through">
+                        {formatPrice(total)}
+                      </span>
+                    )}
+                    <span className="text-xl sm:text-2xl font-black text-amber-300 font-serif">
+                      {formatPrice(finalTotal)}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Kaspi note */}

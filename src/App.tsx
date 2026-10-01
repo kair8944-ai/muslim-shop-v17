@@ -13,6 +13,7 @@ import { HeroBanner } from './components/HeroBanner';
 import { BoutiqueStories } from './components/BoutiqueStories';
 import { CategoryFilter } from './components/CategoryFilter';
 import { SymptomSelector } from './components/SymptomSelector';
+import { SmartHealthBundles } from './components/SmartHealthBundles';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
@@ -880,13 +881,15 @@ export default function App() {
   const handleAddToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      } else {
-        return [...prev, { product, quantity: 1 }];
-      }
+      const next = existing
+        ? prev.map((item) =>
+            item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          )
+        : [...prev, { product, quantity: 1 }];
+      try {
+        localStorage.setItem('muslim_shop_cart', JSON.stringify(next));
+      } catch {}
+      return next;
     });
 
     if (cartToastTimerRef.current) {
@@ -896,6 +899,31 @@ export default function App() {
     cartToastTimerRef.current = setTimeout(() => {
       setCartToastProduct(null);
     }, 5000);
+  };
+
+  const handleAddBundleToCart = (bundleProducts: Product[], bundleTitle: string) => {
+    if (!bundleProducts || bundleProducts.length === 0) return;
+    setCart((prev) => {
+      const next = [...prev];
+      bundleProducts.forEach((product) => {
+        const idx = next.findIndex((item) => item.product.id === product.id);
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
+        } else {
+          next.push({ product, quantity: 1 });
+        }
+      });
+      try {
+        localStorage.setItem('muslim_shop_cart', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    showToast(
+      langRef.current === 'kz'
+        ? `✨ «${bundleTitle}» жиынтығы себетке қосылды (-10% жеңілдікпен)!`
+        : `✨ Курс «${bundleTitle}» (${bundleProducts.length} шт.) добавлен в корзину со скидкой -10%!`
+    );
   };
 
   const handleUpdateQuantity = (productId: string, delta: number) => {
@@ -1277,6 +1305,16 @@ export default function App() {
         }}
         lang={lang}
         accessibility={accessibility}
+      />
+
+      {/* 3. Smart Curated Health Courses & Bundles with 10% Discount */}
+      <SmartHealthBundles
+        products={products}
+        config={config}
+        lang={lang}
+        selectedSymptom={selectedSymptom}
+        onOpenProduct={handleOpenDetail}
+        onAddBundleToCart={handleAddBundleToCart}
       />
 
       {/* Main Catalog Content */}
