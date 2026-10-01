@@ -203,6 +203,79 @@ if (catalogCache.products.length === 0) {
   refreshCatalogFromFirestore();
 }
 
+let lastCloudRelayCheckAt = 0;
+let lastServerSeenRelayPtr = '';
+
+async function syncServerCacheWithCloudRelay(): Promise<void> {
+  if (Date.now() - lastCloudRelayCheckAt < 6000) return;
+  lastCloudRelayCheckAt = Date.now();
+  try {
+    for (const ptrKeyName of ['ms_d8_ptr', 'ms_d7_ptr']) {
+      const ptrRes = await fetch(
+        `https://keyvalue.immanuel.co/api/KeyVal/GetValue/hbqgqy42/${ptrKeyName}`,
+        { signal: AbortSignal.timeout(3500) }
+      );
+      if (!ptrRes.ok) continue;
+      const ptr = (await ptrRes.text()).replace(/^"|"$/g, '').trim();
+      if (!ptr || ptr.length < 5 || ptr.length > 40) continue;
+      if (ptr === lastServerSeenRelayPtr) return;
+
+      const blobRes = await fetch(`https://bytebin.lucko.me/${ptr}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!blobRes.ok) continue;
+      const delta = await blobRes.json();
+      if (!delta || typeof delta !== 'object') continue;
+
+      lastServerSeenRelayPtr = ptr;
+      let nextProducts = [...catalogCache.products];
+      let nextCategories = [...catalogCache.categories];
+      let nextSettings = { ...catalogCache.settings };
+      let changed = false;
+
+      const delProdSet = new Set<string>(
+        Array.isArray(delta.deletedProductIds) ? delta.deletedProductIds : []
+      );
+      if (delProdSet.size > 0) {
+        const beforeLen = nextProducts.length;
+        nextProducts = nextProducts.filter((p) => p && !delProdSet.has(p.id));
+        if (nextProducts.length !== beforeLen) changed = true;
+      }
+
+      if (delta.upsertedProducts && typeof delta.upsertedProducts === 'object') {
+        for (const item of Object.values(delta.upsertedProducts) as any[]) {
+          if (!item || !item.id || delProdSet.has(item.id)) continue;
+          const idx = nextProducts.findIndex((p) => p.id === item.id);
+          if (idx >= 0) {
+            nextProducts[idx] = { ...nextProducts[idx], ...item };
+          } else {
+            nextProducts = [item, ...nextProducts];
+          }
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        rebuildCatalogBuffers(
+          {
+            updatedAt: new Date().toISOString(),
+            productsCount: nextProducts.length,
+            categoriesCount: nextCategories.length,
+            products: nextProducts,
+            categories: nextCategories,
+            settings: nextSettings,
+          },
+          true
+        );
+      }
+      return;
+    }
+  } catch {
+    // Ignore transient relay timeouts
+  }
+}
+syncServerCacheWithCloudRelay();
+
 // Lazy Gemini AI initialization
 let aiClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -472,6 +545,7 @@ app.get('/api/health', (req, res) => {
 // Universal Catalog API: delivers products, categories, and settings to ANY browser or device
 app.get('/api/catalog', async (req, res) => {
   try {
+    await syncServerCacheWithCloudRelay();
     if (catalogCache.products.length === 0) {
       await refreshCatalogFromFirestore();
     }
@@ -541,7 +615,17 @@ app.post('/api/catalog/sync', async (req, res) => {
         const t = val.trim();
         return t.length > 0 && t !== 'Описание товара' && t !== 'Тауар сипаттамасы';
       };
+      const isRealImg = (imgs: any) =>
+        Array.isArray(imgs) &&
+        imgs.length > 0 &&
+        typeof imgs[0] === 'string' &&
+        imgs[0].length > 10 &&
+        !imgs[0].includes('photo-1584308666744-24d5c474f2ae');
+
       const merged = { ...existing, ...incoming };
+      if (!isRealImg(incoming.images) && isRealImg(existing.images)) {
+        merged.images = existing.images;
+      }
       if (!isValidText(incoming.descriptionRu) && isValidText(existing.descriptionRu)) {
         merged.descriptionRu = existing.descriptionRu;
       }
@@ -621,6 +705,18 @@ app.post('/api/catalog/sync', async (req, res) => {
       }
       if (delta.upsertedProducts && typeof delta.upsertedProducts === 'object') {
         for (const item of Object.values(delta.upsertedProducts) as any[]) {
+          if (!item || !item.id || delProdSet.has(item.id)) continue;
+          const idx = nextProducts.findIndex((p) => p.id === item.id);
+          if (idx >= 0) {
+            nextProducts[idx] = mergeServerProduct(nextProducts[idx], item);
+          } else {
+            nextProducts = [item, ...nextProducts];
+          }
+          changed = true;
+        }
+      }
+      if (Array.isArray(req.body.fullProducts) && req.body.fullProducts.length > 0) {
+        for (const item of req.body.fullProducts) {
           if (!item || !item.id || delProdSet.has(item.id)) continue;
           const idx = nextProducts.findIndex((p) => p.id === item.id);
           if (idx >= 0) {

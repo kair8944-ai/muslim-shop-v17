@@ -56,6 +56,7 @@ import {
   getCachedProductsFromLocalStorage,
   saveProductsToLocalStorageCache,
   mergeProductPreservingFields,
+  autoSyncLocalProductsIfNeeded,
   PRODUCTS_CACHE_STORAGE_KEY,
 } from './services/firestoreService';
 import { trackVisit, trackProductView } from './services/analyticsService';
@@ -388,6 +389,10 @@ export default function App() {
         saveProductsToLocalStorageCache(reconciled);
       }
 
+      if (reconciled.length > 0) {
+        autoSyncLocalProductsIfNeeded(reconciled).catch(() => {});
+      }
+
       setProducts((prev) => {
         if (prev.length !== reconciled.length) return reconciled;
         for (let i = 0; i < reconciled.length; i++) {
@@ -422,6 +427,7 @@ export default function App() {
         !e.key ||
         e.key === PRODUCTS_CACHE_STORAGE_KEY ||
         e.key === 'muslim_shop_products' ||
+        e.key === 'muslim_shop_catalog_delta_v6' ||
         e.key === 'muslim_shop_catalog_delta_v2'
       ) {
         const latestCached = getCachedProductsFromLocalStorage();

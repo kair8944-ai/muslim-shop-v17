@@ -31,10 +31,23 @@ const SNAPSHOT_CACHE_BUSTER = 'v9';
 
 // Cloud Relay (CORS-enabled full-image & metadata sync when Firestore Free Tier daily quota is reached)
 const CLOUD_RELAY_APP_KEY = 'hbqgqy42';
-const CLOUD_RELAY_CHUNK_PREFIX = 'ms_d7_';
+const CLOUD_RELAY_CHUNK_PREFIX = 'ms_d8_';
+const LEGACY_CLOUD_RELAY_PREFIX = 'ms_d7_';
 const CLOUD_BLOB_POST_URL = 'https://bytebin.lucko.me/post';
 const CLOUD_BLOB_GET_BASE = 'https://bytebin.lucko.me/';
 let lastSeenCloudRelayPtr = '';
+let lastSeenLegacyRelayPtr = '';
+const remoteCloudUpsertedIds = new Set<string>();
+let initialCloudPullCompleted = false;
+const deltaHydrationListeners = new Set<() => void>();
+
+function notifyDeltaListeners(): void {
+  deltaHydrationListeners.forEach((fn) => {
+    try {
+      fn();
+    } catch {}
+  });
+}
 
 // Helper to prevent Firebase JS SDK write/read streams from hanging indefinitely when quota (429) is reached
 function withFirestoreTimeout<T>(promise: Promise<T>, timeoutMs = 2200): Promise<T | null> {
@@ -82,6 +95,21 @@ function hasRealProductImage(prod: any): boolean {
       !prod.images[0].includes('photo-1584308666744-24d5c474f2ae')
   );
 }
+
+function isValidProductRecord(prod: any): boolean {
+  return Boolean(
+    prod &&
+      typeof prod === 'object' &&
+      typeof prod.id === 'string' &&
+      prod.id.trim().length > 0 &&
+      (prod.titleRu || prod.titleKz || prod.title)
+  );
+}
+
+// Tracks the unmodified static/server base catalog so pushDeltaToFirestore always knows
+// which products were added or modified compared to the base snapshot
+const rawNetworkSnapshotMap = new Map<string, Product>();
+const SNAPSHOT_MAX_BUILTIN_ID = 'prod-1790759000350';
 
 export function hasValidDescription(desc?: string): boolean {
   if (!desc || typeof desc !== 'string') return false;
@@ -340,9 +368,13 @@ export function getLocalCatalogDelta(): CatalogDelta {
       );
       const upsertedProds: Record<string, Product> = {};
       for (const [id, prod] of Object.entries(parsed.upsertedProducts || {})) {
-        if (!DEFAULT_DELETED_PRODUCT_IDS.has(id) && !mergedDeletedIds.includes(id) && hasRealProductImage(prod)) {
+        if (!DEFAULT_DELETED_PRODUCT_IDS.has(id) && !mergedDeletedIds.includes(id) && isValidProductRecord(prod)) {
           const norm = normalizeProduct(id, prod);
-          inMemoryProductImages.set(id, norm.images);
+          if (hasRealProductImage(norm)) {
+            inMemoryProductImages.set(id, norm.images);
+          } else if (inMemoryProductImages.has(id)) {
+            norm.images = inMemoryProductImages.get(id)!;
+          }
           upsertedProds[id] = norm;
         }
       }
@@ -366,74 +398,213 @@ export function getLocalCatalogDelta(): CatalogDelta {
 
 function saveLocalCatalogDelta(delta: CatalogDelta): void {
   inMemoryDelta = delta;
+  // Always save full delta with high-res base64 images to IndexedDB (500MB+ quota)
+  idbSet('catalog_delta_v4', delta).catch(() => {});
+  try {
+    const imgObj: Record<string, string[]> = {};
+    inMemoryProductImages.forEach((imgs, id) => {
+      if (Array.isArray(imgs) && imgs.length > 0 && !imgs[0].includes('photo-1584308666744-24d5c474f2ae')) {
+        imgObj[id] = imgs;
+      }
+    });
+    idbSet('product_images_v1', imgObj).catch(() => {});
+  } catch {}
+
   try {
     localStorage.setItem(LOCAL_DELTA_STORAGE_KEY, JSON.stringify(delta));
   } catch {
-    // If localStorage reaches 5MB after dozens of high-res uploads, trim oldest upserted images in localStorage
-    // while keeping full data in IndexedDB
+    // If localStorage reaches 5MB limit due to large base64 images, NEVER drop any product from delta!
+    // Instead, compact large data: image strings in the localStorage copy while keeping 100% of product metadata
+    // in localStorage and 100% of full-res images in IndexedDB & inMemoryProductImages.
     try {
-      const keys = Object.keys(delta.upsertedProducts);
-      if (keys.length > 20) {
-        const trimmedProducts: Record<string, Product> = {};
-        keys.slice(-20).forEach((k) => {
-          trimmedProducts[k] = delta.upsertedProducts[k];
-        });
+      const compactUpserted: Record<string, Product> = {};
+      const entries = Object.entries(delta.upsertedProducts || {});
+      entries.forEach(([id, p], idx) => {
+        if (!p) return;
+        if (hasRealProductImage(p)) {
+          inMemoryProductImages.set(id, p.images);
+        }
+        const keepFullImgInLs = idx >= entries.length - 4;
+        compactUpserted[id] = {
+          ...p,
+          images: (p.images || []).map((img) =>
+            !keepFullImgInLs && img && img.startsWith('data:') && img.length > 25000
+              ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80'
+              : img
+          ),
+        };
+      });
+      try {
         localStorage.setItem(
           LOCAL_DELTA_STORAGE_KEY,
-          JSON.stringify({ ...delta, upsertedProducts: trimmedProducts })
+          JSON.stringify({ ...delta, upsertedProducts: compactUpserted })
+        );
+      } catch {
+        // Ultra-compact fallback: strip all data: URIs in localStorage copy while preserving every single product
+        const ultraCompactUpserted: Record<string, Product> = {};
+        for (const [id, p] of entries) {
+          if (!p) continue;
+          ultraCompactUpserted[id] = {
+            ...p,
+            images: (p.images || []).map((img) =>
+              img && img.startsWith('data:')
+                ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80'
+                : img
+            ),
+          };
+        }
+        localStorage.setItem(
+          LOCAL_DELTA_STORAGE_KEY,
+          JSON.stringify({ ...delta, upsertedProducts: ultraCompactUpserted })
         );
       }
     } catch {}
   }
-  idbSet('catalog_delta_v4', delta).catch(() => {});
 }
 
-// Hydrate inMemoryDelta from IndexedDB on boot in case >20 products were added locally
-idbGet<CatalogDelta>('catalog_delta_v4')
-  .then((idbDelta) => {
-    if (idbDelta && idbDelta.upsertedProducts) {
+let hydrationPromise: Promise<CatalogDelta> | null = null;
+
+/**
+ * Hydrates inMemoryDelta and inMemoryProductImages from all local storage layers
+ * (IndexedDB `catalog_delta_v4`, `base_catalog_v9`, `product_images_v1`, and localStorage caches)
+ * so that NOT A SINGLE PRODUCT added in Chrome can ever be missed or lost!
+ */
+export function ensureLocalDeltaHydrated(): Promise<CatalogDelta> {
+  if (hydrationPromise) return hydrationPromise;
+  hydrationPromise = (async () => {
+    try {
+      const [idbDelta, idbBase, idbImages] = await Promise.all([
+        idbGet<CatalogDelta>('catalog_delta_v4'),
+        idbGet<SharedCatalogPayload>(IDB_BASE_CATALOG_KEY),
+        idbGet<Record<string, string[]>>('product_images_v1'),
+      ]);
+
+      if (idbImages && typeof idbImages === 'object') {
+        for (const [id, imgs] of Object.entries(idbImages)) {
+          if (Array.isArray(imgs) && imgs.length > 0 && !imgs[0].includes('photo-1584308666744-24d5c474f2ae')) {
+            inMemoryProductImages.set(id, imgs);
+          }
+        }
+      }
+
+      if (idbBase && Array.isArray(idbBase.products)) {
+        for (const bp of idbBase.products) {
+          if (bp && bp.id && hasRealProductImage(bp)) {
+            inMemoryProductImages.set(bp.id, bp.images);
+          }
+        }
+      }
+
       const current = getLocalCatalogDelta();
       const mergedDeleted = Array.from(
         new Set([
           ...Array.from(DEFAULT_DELETED_PRODUCT_IDS),
-          ...(idbDelta.deletedProductIds || []),
+          ...(idbDelta?.deletedProductIds || []),
           ...(current.deletedProductIds || []),
         ])
-      );
+      ).filter((id) => !RESTORED_REAL_PRODUCT_IDS.has(id));
+
+      const deletedSet = new Set(mergedDeleted);
       const mergedUpserted: Record<string, Product> = {};
+
       const allIds = new Set([
-        ...Object.keys(idbDelta.upsertedProducts || {}),
+        ...Object.keys(idbDelta?.upsertedProducts || {}),
         ...Object.keys(current.upsertedProducts || {}),
       ]);
+
       for (const id of allIds) {
-        if (mergedDeleted.includes(id)) continue;
-        const fromIdb = idbDelta.upsertedProducts?.[id];
+        if (deletedSet.has(id)) continue;
+        const fromIdb = idbDelta?.upsertedProducts?.[id];
         const fromCurr = current.upsertedProducts?.[id];
-        const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === id);
-        const combined = fromCurr && fromIdb
-          ? mergeProductPreservingFields(fromIdb, fromCurr)
-          : (fromCurr || fromIdb);
-        if (combined && hasRealProductImage(combined)) {
-          mergedUpserted[id] = mergeProductPreservingFields(baseProd, combined);
+        const baseProd =
+          idbBase?.products?.find((bp) => bp.id === id) ||
+          lastResolvedCatalog?.products?.find((bp) => bp.id === id);
+        const combined =
+          fromCurr && fromIdb
+            ? mergeProductPreservingFields(fromIdb, fromCurr)
+            : fromCurr || fromIdb;
+        if (combined && isValidProductRecord(combined)) {
+          const mergedProd = mergeProductPreservingFields(baseProd, combined);
+          if (hasRealProductImage(mergedProd)) {
+            inMemoryProductImages.set(id, mergedProd.images);
+          } else if (inMemoryProductImages.has(id)) {
+            mergedProd.images = inMemoryProductImages.get(id)!;
+          }
+          mergedUpserted[id] = mergedProd;
         }
       }
+
+      // Also recover any newly added products (id > SNAPSHOT_MAX_BUILTIN_ID) that were stored in
+      // idbBase (`base_catalog_v9`) or `localStorage` (`muslim_shop_products_cache_v4`) when localStorage delta hit 5MB
+      const candidatePools: Product[][] = [];
+      if (idbBase && Array.isArray(idbBase.products)) {
+        candidatePools.push(idbBase.products);
+      }
+      try {
+        const rawCache =
+          localStorage.getItem(PRODUCTS_CACHE_STORAGE_KEY) ||
+          localStorage.getItem(LEGACY_PRODUCTS_CACHE_KEY);
+        if (rawCache) {
+          const parsedCache = JSON.parse(rawCache);
+          if (Array.isArray(parsedCache)) {
+            candidatePools.push(parsedCache);
+          }
+        }
+      } catch {}
+
+      for (const pool of candidatePools) {
+        for (const item of pool) {
+          if (!item || !item.id || deletedSet.has(item.id) || DEFAULT_DELETED_PRODUCT_IDS.has(item.id)) {
+            continue;
+          }
+          const isPostSnapshotNewItem =
+            item.id.startsWith('prod-179') && item.id > SNAPSHOT_MAX_BUILTIN_ID;
+          const isMissingFromRawSnapshot =
+            rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(item.id);
+          if (isPostSnapshotNewItem || isMissingFromRawSnapshot) {
+            const norm = normalizeProduct(item.id, item);
+            if (hasRealProductImage(norm)) {
+              inMemoryProductImages.set(norm.id, norm.images);
+            } else if (inMemoryProductImages.has(norm.id)) {
+              norm.images = inMemoryProductImages.get(norm.id)!;
+            }
+            mergedUpserted[norm.id] = mergeProductPreservingFields(mergedUpserted[norm.id], norm);
+          }
+        }
+      }
+
       const merged: CatalogDelta = {
         upsertedProducts: mergedUpserted,
-        deletedProductIds: mergedDeleted.filter((id) => !RESTORED_REAL_PRODUCT_IDS.has(id)),
-        upsertedCategories: { ...idbDelta.upsertedCategories, ...current.upsertedCategories },
+        deletedProductIds: mergedDeleted,
+        upsertedCategories: {
+          ...(idbDelta?.upsertedCategories || {}),
+          ...(current.upsertedCategories || {}),
+        },
         deletedCategoryIds: Array.from(
-          new Set([...(idbDelta.deletedCategoryIds || []), ...(current.deletedCategoryIds || [])])
+          new Set([
+            ...(idbDelta?.deletedCategoryIds || []),
+            ...(current.deletedCategoryIds || []),
+          ])
         ),
-        settings: { ...(idbDelta.settings || {}), ...(current.settings || {}) },
+        settings: { ...(idbDelta?.settings || {}), ...(current.settings || {}) },
         updatedAt:
-          (idbDelta.updatedAt || '') > (current.updatedAt || '')
-            ? idbDelta.updatedAt
+          (idbDelta?.updatedAt || '') > (current.updatedAt || '')
+            ? idbDelta!.updatedAt
             : current.updatedAt,
       };
-      inMemoryDelta = merged;
+
+      saveLocalCatalogDelta(merged);
+      notifyDeltaListeners();
+      return merged;
+    } catch {
+      return getLocalCatalogDelta();
     }
-  })
-  .catch(() => {});
+  })();
+  return hydrationPromise;
+}
+
+// Kick off hydration immediately on module load
+ensureLocalDeltaHydrated().catch(() => {});
 
 /**
  * Synchronously records a newly added or edited product in local delta storage
@@ -548,6 +719,8 @@ export function applyProductsDelta(baseProducts: Product[], customDelta?: Catalo
           map.set(id, mergedProd);
         } else if (baseExisting) {
           map.set(id, { ...mergedProd, images: baseExisting.images });
+        } else if (isValidProductRecord(mergedProd)) {
+          map.set(id, mergedProd);
         }
 
         // Self-heal delta if it had a missing description that was restored from base catalog
@@ -581,15 +754,16 @@ export function getCachedProductsFromLocalStorage(): Product[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const normalized = parsed
-          .filter((p) => p && p.id && !DEFAULT_DELETED_PRODUCT_IDS.has(p.id))
+          .filter((p) => isValidProductRecord(p) && !DEFAULT_DELETED_PRODUCT_IDS.has(p.id))
           .map((p) => {
             const norm = normalizeProduct(p.id, p);
-            if (inMemoryProductImages.has(norm.id)) {
+            if (hasRealProductImage(norm)) {
+              inMemoryProductImages.set(norm.id, norm.images);
+            } else if (inMemoryProductImages.has(norm.id)) {
               norm.images = inMemoryProductImages.get(norm.id)!;
             }
             return norm;
-          })
-          .filter((norm) => hasRealProductImage(norm));
+          });
         if (normalized.length > 0) {
           return applyProductsDelta(normalized);
         }
@@ -704,15 +878,19 @@ function mergeRemoteDeltaIntoLocal(remoteData: any): CatalogDelta {
   if (remoteData.upsertedProducts && typeof remoteData.upsertedProducts === 'object') {
     for (const [id, prod] of Object.entries(remoteData.upsertedProducts)) {
       if (prod && !mergedDeletedProds.includes(id) && !DEFAULT_DELETED_PRODUCT_IDS.has(id)) {
+        remoteCloudUpsertedIds.add(id);
         const existing = mergedUpsertedProds[id];
-        const baseFallback = existing || baseCatalogMap.get(id);
+        const baseFallback = existing || baseCatalogMap.get(id) || rawNetworkSnapshotMap.get(id);
         const rawRemoteNorm = normalizeProduct(id, prod);
-        // Never allow a placeholder demo image to overwrite or pollute upsertedProducts
-        if (!hasRealProductImage(rawRemoteNorm)) {
+        if (!isValidProductRecord(rawRemoteNorm)) {
           continue;
         }
         const remoteNorm = mergeProductPreservingFields(baseFallback, rawRemoteNorm);
-        inMemoryProductImages.set(id, remoteNorm.images);
+        if (hasRealProductImage(remoteNorm)) {
+          inMemoryProductImages.set(id, remoteNorm.images);
+        } else if (inMemoryProductImages.has(id)) {
+          remoteNorm.images = inMemoryProductImages.get(id)!;
+        }
 
         if (!existing) {
           mergedUpsertedProds[id] = remoteNorm;
@@ -832,16 +1010,16 @@ async function pullDeltaFromFirestoreRest(): Promise<CatalogDelta | null> {
 }
 
 /**
- * Pushes full delta (including high-res base64 product images, descriptions, categories, and deletions)
- * to CORS-enabled Cloud Blob + KeyVal Pointer AND compact metadata chunks so all browsers
- * (Chrome, Yandex Browser, Safari, iOS/Android) receive new products immediately even when Firestore is at 429 quota.
+ * Pushes full delta (including ALL high-res base64 product images, descriptions, categories, and deletions)
+ * to CORS-enabled Cloud Blob + Dual KeyVal Pointers (`ms_d8_ptr` and `ms_d7_ptr`) AND compact metadata chunks
+ * so all browsers (Chrome, Yandex Browser, Opera, Safari, iOS/Android, MacBook) receive 100% of products immediately!
  */
 async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise<void> {
   try {
+    // Do NOT slice to 25 or truncate! Include 100% of all upsertedProducts!
     const allProducts = Object.values((deltaPayload.upsertedProducts || {}) as Record<string, any>)
       .filter(Boolean)
-      .sort((a: any, b: any) => (b.createdAt || b.id || '').localeCompare(a.createdAt || a.id || ''))
-      .slice(0, 25);
+      .sort((a: any, b: any) => (b.createdAt || b.id || '').localeCompare(a.createdAt || a.id || ''));
 
     const fullUpsertedMap: Record<string, any> = {};
     for (const p of allProducts) {
@@ -854,6 +1032,7 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
         ...p,
         images: resolvedImages,
       };
+      remoteCloudUpsertedIds.add(p.id);
     }
 
     const fullBlobPayload = {
@@ -865,7 +1044,7 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
       updatedAt: new Date().toISOString(),
     };
 
-    // 1. Upload full JSON with base64 images to CORS Blob Store & update 10-char pointer key
+    // 1. Upload full JSON with base64 images to CORS Blob Store & update BOTH v8 and v7 pointer keys
     const uploadFullBlobPromise = (async () => {
       try {
         const postRes = await fetch(CLOUD_BLOB_POST_URL, {
@@ -875,11 +1054,19 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
         if (postRes.ok) {
           const postData = await postRes.json();
           if (postData && postData.key) {
-            lastSeenCloudRelayPtr = String(postData.key).trim();
-            await fetch(
-              `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr/${lastSeenCloudRelayPtr}`,
-              { method: 'POST' }
-            );
+            const newPtr = String(postData.key).trim();
+            lastSeenCloudRelayPtr = newPtr;
+            lastSeenLegacyRelayPtr = newPtr;
+            await Promise.all([
+              fetch(
+                `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr/${newPtr}`,
+                { method: 'POST' }
+              ).catch(() => {}),
+              fetch(
+                `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr/${newPtr}`,
+                { method: 'POST' }
+              ).catch(() => {}),
+            ]);
           }
         }
       } catch {
@@ -887,10 +1074,10 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
       }
     })();
 
-    // 2. Also push compact metadata chunks as secondary backup
+    // 2. Also push compact metadata chunks as secondary backup (supports up to 30 products)
     const uploadCompactChunksPromise = (async () => {
       try {
-        const compactItems = allProducts.slice(0, 10).map((p: any) => ({
+        const compactItems = allProducts.slice(0, 30).map((p: any) => ({
           i: p.id,
           r: (p.titleRu || '').slice(0, 90),
           p: p.price,
@@ -908,7 +1095,7 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
 
         const compactStr = JSON.stringify({
           p: compactItems,
-          d: (deltaPayload.deletedProductIds || []).slice(-15),
+          d: (deltaPayload.deletedProductIds || []).slice(-25),
           t: Date.now(),
         });
 
@@ -923,7 +1110,7 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
           chunks.push(b64.slice(i, i + chunkSize));
         }
 
-        if (chunks.length > 0 && chunks.length <= 20) {
+        if (chunks.length > 0 && chunks.length <= 35) {
           await Promise.all(
             chunks.map((chunk, idx) =>
               fetch(
@@ -947,15 +1134,29 @@ async function pushDeltaToCloudRelay(deltaPayload: Record<string, any>): Promise
 }
 
 async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
-  // 1. Primary: Check full-fidelity CORS Blob pointer (contains complete products + base64 photos!)
+  let mergedAnyBlob = false;
+  // 1. Primary: Check BOTH v8 (`ms_d8_ptr`) and v7 (`ms_d7_ptr`) CORS Blob pointers and merge both!
   try {
-    const ptrRes = await fetch(
-      `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr`,
-      { method: 'GET', cache: 'no-store' }
+    const [ptr8Res, ptr7Res] = await Promise.all([
+      fetch(
+        `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr`,
+        { method: 'GET', cache: 'no-store' }
+      ).catch(() => null),
+      fetch(
+        `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr`,
+        { method: 'GET', cache: 'no-store' }
+      ).catch(() => null),
+    ]);
+
+    const ptr8 = ptr8Res && ptr8Res.ok ? (await ptr8Res.text()).replace(/^"|"$/g, '').trim() : '';
+    const ptr7 = ptr7Res && ptr7Res.ok ? (await ptr7Res.text()).replace(/^"|"$/g, '').trim() : '';
+
+    const uniquePtrs = Array.from(
+      new Set([ptr8, ptr7].filter((k) => k && k.length >= 5 && k.length <= 40))
     );
-    if (ptrRes.ok) {
-      const ptrKey = (await ptrRes.text()).replace(/^"|"$/g, '').trim();
-      if (ptrKey && ptrKey.length >= 5 && ptrKey.length <= 40) {
+
+    for (const ptrKey of uniquePtrs) {
+      try {
         const blobRes = await fetch(`${CLOUD_BLOB_GET_BASE}${ptrKey}`, {
           method: 'GET',
           cache: 'no-store',
@@ -963,11 +1164,18 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
         if (blobRes.ok) {
           const blobData = await blobRes.json();
           if (blobData && typeof blobData === 'object') {
-            lastSeenCloudRelayPtr = ptrKey;
-            return mergeRemoteDeltaIntoLocal(blobData);
+            if (ptrKey === ptr8) lastSeenCloudRelayPtr = ptr8;
+            if (ptrKey === ptr7) lastSeenLegacyRelayPtr = ptr7;
+            mergeRemoteDeltaIntoLocal(blobData);
+            mergedAnyBlob = true;
           }
         }
-      }
+      } catch {}
+    }
+
+    if (mergedAnyBlob) {
+      initialCloudPullCompleted = true;
+      return getLocalCatalogDelta();
     }
   } catch {
     // Fall through to compact chunks
@@ -979,9 +1187,15 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
       `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}len`,
       { method: 'GET', cache: 'no-store' }
     );
-    if (!lenRes.ok) return null;
+    if (!lenRes.ok) {
+      initialCloudPullCompleted = true;
+      return null;
+    }
     const lenNum = parseInt((await lenRes.text()).replace(/^"|"$/g, '').trim(), 10);
-    if (!lenNum || isNaN(lenNum) || lenNum <= 0 || lenNum > 20) return null;
+    if (!lenNum || isNaN(lenNum) || lenNum <= 0 || lenNum > 35) {
+      initialCloudPullCompleted = true;
+      return null;
+    }
 
     const parts = await Promise.all(
       Array.from({ length: lenNum }, (_, idx) =>
@@ -992,7 +1206,10 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
       )
     );
 
-    if (parts.some((p) => !p)) return null;
+    if (parts.some((p) => !p)) {
+      initialCloudPullCompleted = true;
+      return null;
+    }
     let b64 = parts.join('').replace(/-/g, '+').replace(/_/g, '/');
     while (b64.length % 4 !== 0) b64 += '=';
 
@@ -1003,6 +1220,7 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
       const upsertedMap: Record<string, Product> = {};
       for (const item of parsed.p) {
         if (!item || !item.i || DEFAULT_DELETED_PRODUCT_IDS.has(item.i)) continue;
+        remoteCloudUpsertedIds.add(item.i);
         const existing = local.upsertedProducts[item.i];
         const memImgs = inMemoryProductImages.get(item.i);
         let resolvedImg =
@@ -1024,46 +1242,40 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
               const fullProd = normalizeProduct(item.i, pDoc.data());
               if (hasRealProductImage(fullProd)) {
                 inMemoryProductImages.set(item.i, fullProd.images);
-                upsertedMap[item.i] = {
-                  ...fullProd,
-                  price: typeof item.p === 'number' ? item.p : fullProd.price,
-                  oldPrice: typeof item.o === 'number' ? item.o : fullProd.oldPrice,
-                  inStock: typeof item.k === 'number' ? Boolean(item.k) : fullProd.inStock,
-                  isHit: typeof item.h === 'number' ? Boolean(item.h) : fullProd.isHit,
-                  isNew: typeof item.n === 'number' ? Boolean(item.n) : fullProd.isNew,
-                };
+                resolvedImg = fullProd.images[0];
               }
             }
-          } catch {
-            // Ignore single-doc fetch error
-          }
-          continue;
+          } catch {}
         }
 
-        const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === item.i);
+        const baseProd =
+          rawNetworkSnapshotMap.get(item.i) ||
+          lastResolvedCatalog?.products?.find((bp) => bp.id === item.i);
         const fallbackProd = existing || baseProd;
 
-        // Do not overwrite an existing or base catalog product with a compact chunk that lacks descriptions
-        if (fallbackProd) {
-          upsertedMap[item.i] = mergeProductPreservingFields(
-            fallbackProd,
-            normalizeProduct(item.i, {
-              ...fallbackProd,
-              id: item.i,
-              titleRu: fallbackProd.titleRu || item.r,
-              price: typeof item.p === 'number' ? item.p : fallbackProd.price,
-              oldPrice: typeof item.o === 'number' ? item.o : fallbackProd.oldPrice,
-              categoryId: item.c || fallbackProd.categoryId || 'cat-health',
-              sku: item.s || fallbackProd.sku,
-              inStock: typeof item.k === 'number' ? Boolean(item.k) : fallbackProd.inStock,
-              isHit: typeof item.h === 'number' ? Boolean(item.h) : fallbackProd.isHit,
-              isNew: typeof item.n === 'number' ? Boolean(item.n) : fallbackProd.isNew,
-              images: [resolvedImg],
-              createdAt: fallbackProd.createdAt || '2026-01-01T00:00:00.000Z',
-            })
-          );
-        }
+        upsertedMap[item.i] = mergeProductPreservingFields(
+          fallbackProd,
+          normalizeProduct(item.i, {
+            ...(fallbackProd || {}),
+            id: item.i,
+            titleRu: item.r || fallbackProd?.titleRu || 'Товар',
+            price: typeof item.p === 'number' ? item.p : fallbackProd?.price || 0,
+            oldPrice: typeof item.o === 'number' ? item.o : fallbackProd?.oldPrice,
+            categoryId: item.c || fallbackProd?.categoryId || 'cat-health',
+            sku: item.s || fallbackProd?.sku,
+            inStock: typeof item.k === 'number' ? Boolean(item.k) : fallbackProd?.inStock ?? true,
+            isHit: typeof item.h === 'number' ? Boolean(item.h) : fallbackProd?.isHit ?? false,
+            isNew: typeof item.n === 'number' ? Boolean(item.n) : fallbackProd?.isNew ?? true,
+            images: resolvedImg
+              ? [resolvedImg]
+              : fallbackProd?.images || [
+                  'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=800&q=80',
+                ],
+            createdAt: fallbackProd?.createdAt || new Date().toISOString(),
+          })
+        );
       }
+      initialCloudPullCompleted = true;
       return mergeRemoteDeltaIntoLocal({
         upsertedProducts: upsertedMap,
         deletedProductIds: parsed.d || [],
@@ -1072,55 +1284,68 @@ async function pullDeltaFromCloudRelay(): Promise<CatalogDelta | null> {
   } catch {
     // Ignore cloud relay parse errors
   }
+  initialCloudPullCompleted = true;
   return null;
 }
 
 /**
- * Syncs the current delta state (plus any newly added/modified products from currentProducts)
- * to Cloud Relay, Server Cache, and Firestore `settings/catalog_delta` so all browsers/devices
- * receive newly added/updated/deleted products in ~1 second without hanging!
+ * Syncs the current delta state (plus ALL newly added/modified products from currentProducts)
+ * to Cloud Relay (`bytebin.lucko.me`), Server Cache (`/api/catalog/sync`), and Firestore `settings/catalog_delta`
+ * without any 700KB truncation on Cloud Relay or Server Cache!
  */
 export async function pushDeltaToFirestore(
   currentProducts?: Product[],
   currentCategories?: Category[],
   currentSettings?: Partial<StoreConfig>
 ): Promise<void> {
-  // If Admin passes the live products list (e.g. when clicking "Обновить для всех"),
-  // ensure any newly added or modified products are recorded in local delta first
-  if (Array.isArray(currentProducts) && currentProducts.length > 0) {
-    const baseMap = new Map<string, Product>();
-    if (lastResolvedCatalog && Array.isArray(lastResolvedCatalog.products)) {
-      for (const bp of lastResolvedCatalog.products) {
-        if (bp && bp.id) baseMap.set(bp.id, bp);
-      }
-    }
-    const sortedByNewest = [...currentProducts].sort((a, b) =>
+  // 1. Ensure IndexedDB delta & images are hydrated AND pull latest remote delta first (Pull-before-Push)
+  // so no browser can ever overwrite Cloud Relay with an incomplete subset!
+  await ensureLocalDeltaHydrated().catch(() => {});
+  await pullDeltaFromCloudRelay().catch(() => {});
+
+  // 2. If Admin or auto-heal passes live products list, ensure EVERY product not in raw static snapshot
+  // or modified compared to raw static snapshot is recorded in local delta
+  const effectiveProducts =
+    Array.isArray(currentProducts) && currentProducts.length > 0
+      ? currentProducts
+      : getCachedProductsFromLocalStorage();
+
+  if (effectiveProducts.length > 0) {
+    const sortedByNewest = [...effectiveProducts].sort((a, b) =>
       (b.createdAt || b.id).localeCompare(a.createdAt || a.id)
     );
-    const newestIds = new Set(sortedByNewest.slice(0, 12).map((p) => p.id));
+    const newestIds = new Set(sortedByNewest.slice(0, 30).map((p) => p.id));
 
-    for (const p of currentProducts) {
+    for (const p of effectiveProducts) {
       if (!p || !p.id || DEFAULT_DELETED_PRODUCT_IDS.has(p.id)) continue;
-      const baseProd = baseMap.get(p.id);
+      const rawBaseProd = rawNetworkSnapshotMap.get(p.id);
+      const fallbackBaseProd =
+        rawBaseProd || lastResolvedCatalog?.products?.find((bp) => bp.id === p.id);
+
+      const isPostSnapshotNew =
+        p.id.startsWith('prod-179') && p.id > SNAPSHOT_MAX_BUILTIN_ID;
+      const isMissingFromRawSnapshot =
+        rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(p.id);
+
       const isModified =
-        !baseProd ||
-        baseProd.price !== p.price ||
-        baseProd.oldPrice !== p.oldPrice ||
-        baseProd.inStock !== p.inStock ||
-        baseProd.isHit !== p.isHit ||
-        baseProd.isNew !== p.isNew ||
-        baseProd.titleRu !== p.titleRu ||
-        baseProd.titleKz !== p.titleKz ||
-        baseProd.categoryId !== p.categoryId ||
-        baseProd.descriptionRu !== p.descriptionRu ||
-        baseProd.descriptionKz !== p.descriptionKz ||
-        baseProd.specsRu !== p.specsRu ||
-        baseProd.howToUseRu !== p.howToUseRu;
+        !rawBaseProd ||
+        isPostSnapshotNew ||
+        isMissingFromRawSnapshot ||
+        rawBaseProd.price !== p.price ||
+        rawBaseProd.oldPrice !== p.oldPrice ||
+        rawBaseProd.inStock !== p.inStock ||
+        rawBaseProd.isHit !== p.isHit ||
+        rawBaseProd.isNew !== p.isNew ||
+        rawBaseProd.titleRu !== p.titleRu ||
+        rawBaseProd.titleKz !== p.titleKz ||
+        rawBaseProd.categoryId !== p.categoryId ||
+        rawBaseProd.descriptionRu !== p.descriptionRu ||
+        rawBaseProd.descriptionKz !== p.descriptionKz ||
+        rawBaseProd.specsRu !== p.specsRu ||
+        rawBaseProd.howToUseRu !== p.howToUseRu;
 
       if (isModified || newestIds.has(p.id)) {
-        if (hasRealProductImage(p)) {
-          recordLocalProductUpsert(mergeProductPreservingFields(baseProd, p));
-        }
+        recordLocalProductUpsert(mergeProductPreservingFields(fallbackBaseProd, p));
       }
     }
   }
@@ -1147,10 +1372,17 @@ export async function pushDeltaToFirestore(
     const allUpsertedList = Object.values(delta.upsertedProducts).sort((a, b) =>
       (b.createdAt || b.id).localeCompare(a.createdAt || a.id)
     );
-    const recentInlineProducts: Record<string, any> = {};
+
+    // Full un-truncated map for Cloud Relay (bytebin.lucko.me) & Server (/api/catalog/sync)
+    const fullCloudUpsertedProducts: Record<string, any> = {};
+    // 700KB-capped map strictly for Firestore's 1MB document limit
+    const firestoreInlineProducts: Record<string, any> = {};
     let approxBytes = 0;
+
     for (const p of allUpsertedList) {
-      const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === p.id);
+      const baseProd =
+        rawNetworkSnapshotMap.get(p.id) ||
+        lastResolvedCatalog?.products?.find((bp) => bp.id === p.id);
       const enrichedProd = mergeProductPreservingFields(baseProd, p);
       const memImgs = inMemoryProductImages.get(enrichedProd.id);
       const prodWithFullImg =
@@ -1161,9 +1393,13 @@ export async function pushDeltaToFirestore(
       for (const [k, v] of Object.entries(prodWithFullImg)) {
         if (v !== undefined) cleanProd[k] = v;
       }
+
+      // Always add 100% of products to fullCloudUpsertedProducts (no 700KB limit!)
+      fullCloudUpsertedProducts[p.id] = cleanProd;
+
       const size = JSON.stringify(cleanProd).length;
       if (approxBytes + size < 700000) {
-        recentInlineProducts[p.id] = cleanProd;
+        firestoreInlineProducts[p.id] = cleanProd;
         approxBytes += size;
       }
     }
@@ -1177,8 +1413,8 @@ export async function pushDeltaToFirestore(
       cleanCategories[cid] = cObj;
     }
 
-    const payload = {
-      upsertedProducts: recentInlineProducts,
+    const fullCloudPayload = {
+      upsertedProducts: fullCloudUpsertedProducts,
       upsertedProductIds: allUpsertedList.map((p) => p.id),
       deletedProductIds: delta.deletedProductIds,
       upsertedCategories: cleanCategories,
@@ -1187,14 +1423,79 @@ export async function pushDeltaToFirestore(
       updatedAt: new Date().toISOString(),
     };
 
+    const firestorePayload = {
+      ...fullCloudPayload,
+      upsertedProducts: firestoreInlineProducts,
+    };
+
     const deltaRef = doc(db, SETTINGS_COLLECTION, CATALOG_DELTA_DOC_ID);
     await Promise.all([
-      pushDeltaToCloudRelay(payload),
-      syncServerCatalog({ action: 'syncDelta', delta: payload }),
-      withFirestoreTimeout(setDoc(deltaRef, payload, { merge: true }), 2000),
+      pushDeltaToCloudRelay(fullCloudPayload),
+      syncServerCatalog({
+        action: 'syncDelta',
+        delta: fullCloudPayload,
+        fullProducts: effectiveProducts.length > 0 ? effectiveProducts : undefined,
+      }),
+      withFirestoreTimeout(setDoc(deltaRef, firestorePayload, { merge: true }), 2000),
     ]);
   } catch (err) {
     console.warn('Firestore delta sync notice:', err);
+  }
+}
+
+let isAutoSyncInFlight = false;
+
+/**
+ * Automatically checks if this browser (e.g. Chrome where new products were uploaded) has products
+ * that are not yet in the remote Cloud Relay or Server snapshot, and pushes them so all other
+ * browsers (Yandex, Opera, Safari, phones) automatically receive the exact same product count!
+ */
+export async function autoSyncLocalProductsIfNeeded(
+  liveProducts: Product[],
+  liveCategories?: Category[],
+  liveSettings?: Partial<StoreConfig>
+): Promise<void> {
+  if (isAutoSyncInFlight || !Array.isArray(liveProducts) || liveProducts.length === 0) return;
+  isAutoSyncInFlight = true;
+  try {
+    await ensureLocalDeltaHydrated();
+    if (!initialCloudPullCompleted) {
+      await pullDeltaFromCloudRelay().catch(() => null);
+    }
+
+    const deletedSet = new Set([
+      ...Array.from(DEFAULT_DELETED_PRODUCT_IDS),
+      ...(getLocalCatalogDelta().deletedProductIds || []),
+    ]);
+
+    let hasUnpushedItems = false;
+    for (const p of liveProducts) {
+      if (!p || !p.id || deletedSet.has(p.id)) continue;
+      const isPostSnapshotNew =
+        p.id.startsWith('prod-179') && p.id > SNAPSHOT_MAX_BUILTIN_ID;
+      const isMissingFromRawSnapshot =
+        rawNetworkSnapshotMap.size > 0 && !rawNetworkSnapshotMap.has(p.id);
+
+      if ((isPostSnapshotNew || isMissingFromRawSnapshot) && !remoteCloudUpsertedIds.has(p.id)) {
+        hasUnpushedItems = true;
+        recordLocalProductUpsert(p);
+      }
+    }
+
+    const localUpsertedIds = Object.keys(getLocalCatalogDelta().upsertedProducts || {});
+    for (const id of localUpsertedIds) {
+      if (!deletedSet.has(id) && !remoteCloudUpsertedIds.has(id)) {
+        hasUnpushedItems = true;
+      }
+    }
+
+    if (hasUnpushedItems) {
+      await pushDeltaToFirestore(liveProducts, liveCategories, liveSettings);
+    }
+  } catch {
+    // Ignore background auto-sync errors
+  } finally {
+    isAutoSyncInFlight = false;
   }
 }
 
@@ -1221,7 +1522,8 @@ function isStaticGitHubPagesHost(): boolean {
  * and updates IndexedDB + localStorage caches.
  */
 export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
-  // Pull any cross-browser Firestore REST delta AND Cloud Relay delta in parallel
+  // Hydrate local delta from IndexedDB first, then pull cross-browser Firestore REST delta AND Cloud Relay delta
+  await ensureLocalDeltaHydrated().catch(() => null);
   await Promise.all([
     pullDeltaFromFirestoreRest().catch(() => null),
     pullDeltaFromCloudRelay().catch(() => null),
@@ -1240,8 +1542,14 @@ export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null
         if (contentType.includes('application/json')) {
           const data = await res.json();
           if (data && Array.isArray(data.products) && data.products.length > 0) {
+            const rawProds = data.products.map((p: any) => normalizeProduct(p.id, p));
+            for (const rp of rawProds) {
+              if (rp && rp.id && rp.id <= SNAPSHOT_MAX_BUILTIN_ID) {
+                rawNetworkSnapshotMap.set(rp.id, rp);
+              }
+            }
             const basePayload: SharedCatalogPayload = {
-              products: data.products.map((p: any) => normalizeProduct(p.id, p)),
+              products: rawProds,
               categories: Array.isArray(data.categories)
                 ? data.categories
                     .map((c: any) => normalizeCategory(c.id, c))
@@ -1253,7 +1561,10 @@ export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null
             lastResolvedAt = Date.now();
             const mergedProducts = applyProductsDelta(basePayload.products);
             saveProductsToLocalStorageCache(mergedProducts);
-            idbSet(IDB_BASE_CATALOG_KEY, basePayload).catch(() => {});
+            idbSet(IDB_BASE_CATALOG_KEY, {
+              ...basePayload,
+              products: mergedProducts,
+            }).catch(() => {});
             return {
               products: mergedProducts,
               categories: applyCategoriesDelta(basePayload.categories),
@@ -1267,7 +1578,7 @@ export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null
     }
   }
 
-  // 2. Load Static Snapshot (./catalog-snapshot.json?v=v4) with cache-buster so all browsers get fresh snapshot
+  // 2. Load Static Snapshot (./catalog-snapshot.json?v=v9) with cache-buster so all browsers get fresh snapshot
   try {
     const baseUrl =
       typeof import.meta !== 'undefined' && (import.meta as any).env?.BASE_URL
@@ -1281,12 +1592,18 @@ export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null
     if (snapRes.ok) {
       const data = await snapRes.json();
       if (data && Array.isArray(data.products) && data.products.length > 0) {
+        const rawProds = data.products.map((p: any) => normalizeProduct(p.id, p));
+        for (const rp of rawProds) {
+          if (rp && rp.id) {
+            rawNetworkSnapshotMap.set(rp.id, rp);
+          }
+        }
         const basePayload: SharedCatalogPayload = {
-          products: data.products.map((p: any) => normalizeProduct(p.id, p)),
+          products: rawProds,
           categories: Array.isArray(data.categories)
             ? data.categories
-                .map((c: any) => normalizeCategory(c.id, c))
-                .sort((a: Category, b: Category) => a.order - b.order)
+                 .map((c: any) => normalizeCategory(c.id, c))
+                 .sort((a: Category, b: Category) => a.order - b.order)
             : [],
           settings: data.settings || {},
         };
@@ -1294,7 +1611,10 @@ export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null
         lastResolvedAt = Date.now();
         const mergedProducts = applyProductsDelta(basePayload.products);
         saveProductsToLocalStorageCache(mergedProducts);
-        idbSet(IDB_BASE_CATALOG_KEY, basePayload).catch(() => {});
+        idbSet(IDB_BASE_CATALOG_KEY, {
+          ...basePayload,
+          products: mergedProducts,
+        }).catch(() => {});
         return {
           products: mergedProducts,
           categories: applyCategoriesDelta(basePayload.categories),
@@ -1436,14 +1756,14 @@ export function subscribeToProducts(
     onSuccess(initialCachedProducts);
   }
 
-  // If this browser already has locally added/edited products in its delta (e.g. Chrome where user added products),
-  // proactively push its delta to Firestore & Cloud Relay on startup so Yandex Browser / iPhone immediately receive them!
-  const existingDelta = getLocalCatalogDelta();
-  if (Object.keys(existingDelta.upsertedProducts || {}).length > 0) {
-    pushDeltaToFirestore().catch(() => {});
-  }
+  // Listen for IndexedDB delta & image hydration completion
+  const onDeltaHydrated = () => {
+    emitMerged();
+  };
+  deltaHydrationListeners.add(onDeltaHydrated);
 
-  // 2. Hydrate from IndexedDB / Snapshot & revalidate from network in background for cross-browser sync
+  // 2. Hydrate from IndexedDB / Snapshot & revalidate from network in background for cross-browser sync.
+  // IMPORTANT: Never push to Cloud Relay before pulling from Cloud Relay (prevents stale browsers from overwriting new products!).
   fetchUniversalCatalog()
     .then(async (catalog) => {
       if (isUnsubscribed) return;
@@ -1451,11 +1771,16 @@ export function subscribeToProducts(
         currentBaseProducts = catalog.products;
         emitMerged();
       }
-      // Background network + Cloud Relay revalidation ensures another browser (e.g. Yandex Browser / Safari) always receives new items added in Chrome
+      // Background network + Cloud Relay revalidation ensures another browser (e.g. Yandex Browser / Opera / Safari) always receives new items added in Chrome
       const freshNet = await fetchNetworkCatalog();
       if (!isUnsubscribed && freshNet && freshNet.products.length > 0) {
         currentBaseProducts = freshNet.products;
         emitMerged();
+        // After pulling from network & Cloud Relay, if this browser (e.g. Chrome) has local products that aren't in Cloud Relay yet, auto-push them!
+        const mergedNow = applyProductsDelta(currentBaseProducts);
+        autoSyncLocalProductsIfNeeded(mergedNow, freshNet.categories, freshNet.settings).catch(
+          () => {}
+        );
       }
     })
     .catch((err) => {
@@ -1464,26 +1789,35 @@ export function subscribeToProducts(
       }
     });
 
-  // 3. Simultaneously listen to Firestore (`settings/catalog_delta`) AND poll Cloud Relay pointer for real-time cross-browser updates
+  // 3. Simultaneously listen to Firestore (`settings/catalog_delta`) AND poll Cloud Relay pointers (`ms_d8_ptr` & `ms_d7_ptr`) for real-time cross-browser updates
   const checkCloudRelayLiveUpdates = async () => {
     if (isUnsubscribed) return;
     try {
-      const ptrRes = await fetch(
-        `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr`,
-        { method: 'GET', cache: 'no-store' }
-      );
-      if (ptrRes.ok) {
-        const ptrKey = (await ptrRes.text()).replace(/^"|"$/g, '').trim();
-        if (ptrKey && ptrKey.length >= 5 && ptrKey !== lastSeenCloudRelayPtr) {
-          await pullDeltaFromCloudRelay();
-          emitMerged();
-        }
+      const [ptr8Res, ptr7Res] = await Promise.all([
+        fetch(
+          `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr`,
+          { method: 'GET', cache: 'no-store' }
+        ).catch(() => null),
+        fetch(
+          `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr`,
+          { method: 'GET', cache: 'no-store' }
+        ).catch(() => null),
+      ]);
+      const ptr8 = ptr8Res && ptr8Res.ok ? (await ptr8Res.text()).replace(/^"|"$/g, '').trim() : '';
+      const ptr7 = ptr7Res && ptr7Res.ok ? (await ptr7Res.text()).replace(/^"|"$/g, '').trim() : '';
+
+      const changed8 = ptr8 && ptr8.length >= 5 && ptr8 !== lastSeenCloudRelayPtr;
+      const changed7 = ptr7 && ptr7.length >= 5 && ptr7 !== lastSeenLegacyRelayPtr;
+
+      if (changed8 || changed7) {
+        await pullDeltaFromCloudRelay();
+        emitMerged();
       }
     } catch {}
   };
 
   const pollInterval =
-    typeof window !== 'undefined' ? window.setInterval(checkCloudRelayLiveUpdates, 8000) : null;
+    typeof window !== 'undefined' ? window.setInterval(checkCloudRelayLiveUpdates, 6000) : null;
   const onFocusOrVisible = () => {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
       checkCloudRelayLiveUpdates();
@@ -1540,6 +1874,7 @@ export function subscribeToProducts(
 
     return () => {
       isUnsubscribed = true;
+      deltaHydrationListeners.delete(onDeltaHydrated);
       if (pollInterval) clearInterval(pollInterval);
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onFocusOrVisible);
@@ -1550,6 +1885,7 @@ export function subscribeToProducts(
   } catch {
     return () => {
       isUnsubscribed = true;
+      deltaHydrationListeners.delete(onDeltaHydrated);
       if (pollInterval) clearInterval(pollInterval);
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onFocusOrVisible);
