@@ -1,115 +1,111 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  Search,
   ShoppingBag,
-  Heart,
-  MessageCircle,
-  MapPin,
-  Phone,
   Shield,
   Layers,
-  X,
-  ExternalLink,
+  Phone,
+  Clock,
+  MapPin,
+  Sparkles,
 } from 'lucide-react';
-import { AccessibilitySettings, Category, Language, Product, StoreConfig } from '../types';
-import { isStoreOpen, formatPrice } from '../utils/formatters';
+import {
+  AccessibilitySettings,
+  Category,
+  Language,
+  Product,
+  StoreConfig,
+} from '../types';
 import { SmartSearchBar } from './SmartSearchBar';
 import { SyncStatusWidget } from './SyncStatusWidget';
 
 interface HeaderProps {
   config: StoreConfig;
-  lang: Language;
-  onLanguageChange: (lang: Language) => void;
-  accessibility: AccessibilitySettings;
-  onAccessibilityChange: (settings: AccessibilitySettings) => void;
+  cartCount: number;
+  favoritesCount?: number;
+  products: Product[];
+  categories: Category[];
+  productCounts: Record<string, number>;
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  products?: Product[];
-  categories?: Category[];
-  productCounts?: Record<string, number>;
-  onSelectCategory?: (categoryId: string) => void;
-  onSelectSymptom?: (symptomId: string) => void;
-  onOpenProduct?: (product: Product) => void;
-  onAddToCart?: (product: Product) => void;
-  cartCount: number;
-  favoritesCount: number;
+  lang: Language;
+  onLanguageChange: (lang: Language) => void;
+  accessibility?: AccessibilitySettings;
+  onAccessibilityChange?: (settings: AccessibilitySettings) => void;
   onOpenCart: () => void;
-  onOpenFavorites: () => void;
+  onOpenFavorites?: () => void;
   onOpenAdmin: () => void;
   onOpenCatalog?: () => void;
+  onSelectCategory?: (id: string) => void;
+  onSelectSymptom?: (symptomId: string) => void;
+  onOpenProduct: (product: Product) => void;
+  onAddToCart: (product: Product) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   config,
-  lang,
-  onLanguageChange,
+  cartCount,
+  products,
+  categories,
+  productCounts,
   searchQuery,
   onSearchChange,
-  products = [],
-  categories = [],
-  productCounts = {},
-  onSelectCategory = () => {},
-  onSelectSymptom,
-  onOpenProduct = () => {},
-  onAddToCart = () => {},
-  cartCount,
-  favoritesCount,
+  lang,
+  onLanguageChange,
   onOpenCart,
-  onOpenFavorites,
   onOpenAdmin,
   onOpenCatalog,
+  onSelectCategory,
+  onSelectSymptom,
+  onOpenProduct,
+  onAddToCart,
 }) => {
   const isKz = lang === 'kz';
 
   return (
-    <header id="main-header" className="sticky top-0 z-40 w-full bg-white shadow-sm border-b border-slate-200">
-      {/* 1. Top Utility Info Bar */}
-      <div className="bg-slate-900 text-slate-200 text-xs px-3 sm:px-6 py-2 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 flex-wrap">
-          {/* Left: Location & Hours */}
-          <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-            <div className="flex items-center gap-1.5 text-slate-300 font-medium">
-              <MapPin className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-              <span>г. Атырау, Рынок Дина, ТД «Дина Байзар», Бутик №24</span>
-            </div>
-            <span className="hidden md:inline text-slate-600">•</span>
-            <span className="hidden md:inline text-slate-400">
-              {isKz ? 'Күн сайын: 10:00 – 19:00' : 'Ежедневно: 10:00 – 19:00'}
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs">
+      {/* 1. Top Ribbon: Location, Hours, Phone, Language */}
+      <div className="bg-slate-900 text-white text-[11px] sm:text-xs py-1.5 px-3 sm:px-6 border-b border-slate-800">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-4 truncate">
+            <span className="flex items-center gap-1.5 text-slate-300 shrink-0">
+              <MapPin className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span className="font-semibold">{config.city}, ТД «Дина Байзар», Бутик №24</span>
+            </span>
+            <span className="hidden md:flex items-center gap-1.5 text-slate-400">
+              <Clock className="w-3 h-3 text-[#C5A059]" />
+              <span>{isKz ? config.workingHoursKz : config.workingHoursRu}</span>
             </span>
           </div>
 
-          {/* Right: Phone & Language & Admin button */}
-          <div className="flex items-center gap-3 sm:gap-4 ml-auto">
+          <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             <a
-              href="tel:+77781754241"
-              className="flex items-center gap-1.5 font-bold hover:text-[#C5A059] transition-colors"
+              href={`tel:+${config.whatsappNumber || '77781754241'}`}
+              className="flex items-center gap-1 text-slate-200 hover:text-white font-bold transition-colors"
             >
-              <Phone className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-              <span>+7 778 175 42 41</span>
+              <Phone className="w-3 h-3 text-[#C5A059]" />
+              <span className="font-mono">+{config.whatsappNumber || '7 778 175 42 41'}</span>
             </a>
 
             {/* Language Switcher */}
-            <div className="flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs font-bold text-slate-300">
+            <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-[10px] font-bold">
               <button
                 type="button"
-                id="lang-ru-btn"
                 onClick={() => onLanguageChange('ru')}
                 className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
-                  lang === 'ru'
+                  !isKz
                     ? 'bg-[#C5A059] text-slate-950 font-black'
-                    : 'hover:text-white'
+                    : 'text-slate-300 hover:text-white'
                 }`}
               >
                 RU
               </button>
               <button
                 type="button"
-                id="lang-kz-btn"
                 onClick={() => onLanguageChange('kz')}
                 className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
-                  lang === 'kz'
+                  isKz
                     ? 'bg-[#C5A059] text-slate-950 font-black'
-                    : 'hover:text-white'
+                    : 'text-slate-300 hover:text-white'
                 }`}
               >
                 KZ
@@ -119,11 +115,12 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Main Store Header: Brand + Large Search + Actions */}
-      <div className="px-3 sm:px-6 py-3 sm:py-3.5">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 sm:gap-5">
-          {/* Brand Mark */}
-          <div className="flex items-center gap-3 shrink-0">
+      {/* 2. Main Store Header: Modern Responsive 2-Row / 1-Row layout */}
+      <div className="px-3 sm:px-6 py-2.5 sm:py-3">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5 md:gap-5">
+          {/* Row 1 on Mobile / Left Column on Desktop: Brand + Catalog + Mobile Actions */}
+          <div className="flex items-center justify-between gap-3 w-full md:w-auto shrink-0">
+            {/* Brand Mark */}
             <div
               onClick={() => {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -135,28 +132,59 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-slate-900 group-hover:text-black transition-colors font-sans">
                   MUSLIM SHOP
                 </span>
-                <span className="w-2 h-2 rounded-full bg-[#C5A059]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#C5A059]" />
               </div>
-              <span className="text-[10px] sm:text-xs font-bold tracking-widest text-slate-500 uppercase mt-0.5">
+              <span className="text-[10px] sm:text-xs font-black tracking-widest text-slate-500 uppercase mt-0.5">
                 АТЫРАУ • БУТИК 24
               </span>
             </div>
 
-            {/* Quick Catalog Button */}
+            {/* Quick Catalog Button (Desktop) */}
             {onOpenCatalog && (
               <button
                 type="button"
                 onClick={onOpenCatalog}
-                className="hidden lg:flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                className="hidden lg:flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
               >
                 <Layers className="w-4 h-4 text-[#C5A059]" />
                 <span>{isKz ? 'Каталог' : 'Каталог'}</span>
               </button>
             )}
+
+            {/* Right Buttons on Mobile: Admin + Cart */}
+            <div className="flex items-center gap-2 md:hidden">
+              <SyncStatusWidget lang={lang} variant="header" products={products} />
+
+              <button
+                type="button"
+                id="header-admin-btn-mobile"
+                onClick={onOpenAdmin}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 font-bold text-xs shadow-2xs"
+                title="Панель администратора"
+              >
+                <Shield className="w-3.5 h-3.5 text-[#C5A059]" />
+                <span className="font-extrabold">{isKz ? 'Админ' : 'Админ'}</span>
+              </button>
+
+              <button
+                type="button"
+                id="header-cart-btn-mobile"
+                onClick={onOpenCart}
+                className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-slate-900 text-white shadow-xs"
+                title="Корзина"
+              >
+                <ShoppingBag className="w-5 h-5 text-[#C5A059]" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-600 text-white font-mono font-extrabold text-[10px] flex items-center justify-center shadow-xs">
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* Large Search Bar */}
-          <div className="flex-1 min-w-[140px] max-w-2xl mx-1 sm:mx-3 relative">
+          {/* Full-Width Search Bar on Mobile / Centered Search on Desktop */}
+          <div className="w-full md:flex-1 md:max-w-2xl md:mx-4 relative">
             <SmartSearchBar
               inputId="header-search-input"
               searchQuery={searchQuery}
@@ -173,15 +201,13 @@ export const Header: React.FC<HeaderProps> = ({
             />
           </div>
 
-          {/* Right Actions: Sync Status + Admin + Cart */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Sync status widget (header variant) */}
+          {/* Desktop Right Actions: Sync Status + Admin + Cart */}
+          <div className="hidden md:flex items-center gap-2.5 sm:gap-3 shrink-0">
             <SyncStatusWidget lang={lang} variant="header" products={products} />
 
-            {/* PROMINENT ADMIN BUTTON (visible on ALL devices!) */}
             <button
               type="button"
-              id="header-admin-btn"
+              id="header-admin-btn-desktop"
               onClick={onOpenAdmin}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300/80 font-bold text-xs sm:text-sm shadow-2xs transition-colors cursor-pointer"
               title="Панель администратора магазина"
@@ -190,10 +216,9 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-extrabold">{isKz ? 'Админ' : 'Админ'}</span>
             </button>
 
-            {/* Cart Button with Count Badge */}
             <button
               type="button"
-              id="header-cart-btn"
+              id="header-cart-btn-desktop"
               onClick={onOpenCart}
               className="relative flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer shrink-0"
               title={isKz ? 'Себетті ашу' : 'Открыть корзину'}
@@ -206,7 +231,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 )}
               </div>
-              <span className="hidden sm:inline font-bold">
+              <span className="font-bold">
                 {isKz ? 'Себет' : 'Корзина'}
               </span>
             </button>
