@@ -479,22 +479,22 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
       <section
         id="boutique-stories-bar"
         aria-label={isKz ? 'Бутик стористері' : 'Сторис бутика'}
-        className="w-full bg-[#061812] border-b border-amber-500/15 py-4 sm:py-5"
+        className="w-full bg-white border-b border-slate-200 py-3 sm:py-4"
       >
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between gap-2 mb-3.5">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_#fbbf24]" />
-              <span className="text-sm sm:text-base font-bold text-white tracking-tight">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#C5A059]" />
+              <span className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
                 {isKz ? 'Бутик №24 сторисі • Жылдам шолу' : 'Сторис Бутика №24 • Быстрый обзор'}
               </span>
             </div>
-            <span className="text-xs font-medium text-amber-300/90 hidden sm:inline">
-              {isKz ? 'Түртіп ашыңыз' : 'Нажмите на кружок для просмотра'}
+            <span className="text-xs font-bold text-slate-500 hidden sm:inline">
+              {isKz ? 'Түртіп ашыңыз' : 'Нажмите для просмотра'}
             </span>
           </div>
 
-          <div className="flex items-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar py-1.5">
+          <div className="flex items-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar py-1">
             {storyGroups.map((group, idx) => {
               const isSeen = seenIds.includes(group.id);
               return (
@@ -503,30 +503,30 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
                   id={`story-trigger-${group.id}`}
                   type="button"
                   onClick={() => openStoryGroup(idx)}
-                  className="group flex flex-col items-center gap-2 shrink-0 cursor-pointer focus:outline-none"
+                  className="group flex flex-col items-center gap-1.5 shrink-0 cursor-pointer focus:outline-none"
                 >
                   <div className="relative">
-                    {/* Story glowing gradient ring */}
+                    {/* Story ring */}
                     <div
-                      className={`w-[72px] h-[72px] sm:w-22 sm:h-22 rounded-full p-[2.5px] transition-transform duration-200 group-hover:scale-105 ${
+                      className={`w-[76px] h-[76px] sm:w-[88px] sm:h-[88px] rounded-full p-[3px] transition-transform duration-200 group-hover:scale-105 ${
                         isSeen
-                          ? 'bg-emerald-900/80 border border-amber-500/30'
-                          : `bg-gradient-to-tr ${group.ringGradient} shadow-[0_0_16px_rgba(251,191,36,0.25)]`
+                          ? 'bg-slate-300'
+                          : `bg-gradient-to-tr ${group.ringGradient} shadow-xs`
                       }`}
                     >
-                      <div className="w-full h-full rounded-full bg-[#04120E] border-2 border-[#061812] overflow-hidden flex items-center justify-center relative">
+                      <div className="w-full h-full rounded-full bg-white border-2 border-white overflow-hidden flex items-center justify-center relative shadow-inner">
                         {group.coverImage ? (
                           <>
                             <img
                               src={group.coverImage}
                               alt={isKz ? group.titleKz : group.titleRu}
                               referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover opacity-90 group-hover:scale-110 transition-transform duration-300"
+                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                             />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
                           </>
                         ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-[#041E16] via-emerald-900 to-stone-900 flex items-center justify-center">
+                          <div className="w-full h-full bg-gradient-to-br from-blue-50 to-amber-50 flex items-center justify-center">
                             {renderGroupIcon(group.iconType)}
                           </div>
                         )}
@@ -535,17 +535,17 @@ export const BoutiqueStories: React.FC<BoutiqueStoriesProps> = ({
 
                     {/* Bottom micro tag */}
                     <span
-                      className={`absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider whitespace-nowrap shadow-md border ${
+                      className={`absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider whitespace-nowrap shadow-xs border ${
                         isSeen
-                          ? 'bg-[#0B261C] text-emerald-200 border-amber-500/30'
-                          : 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 border-amber-200'
+                          ? 'bg-slate-100 text-slate-600 border-slate-300'
+                          : 'bg-[#ffbd00] text-slate-900 border-[#e5aa00]'
                       }`}
                     >
                       {isKz ? group.tagKz : group.tagRu}
                     </span>
                   </div>
 
-                  <span className="text-xs sm:text-sm font-bold text-stone-100 group-hover:text-amber-300 transition-colors max-w-[88px] sm:max-w-[104px] truncate mt-0.5">
+                  <span className="text-xs sm:text-[13px] font-bold text-slate-800 group-hover:text-[#0567BA] transition-colors max-w-[88px] sm:max-w-[104px] truncate mt-1">
                     {isKz ? group.titleKz : group.titleRu}
                   </span>
                 </button>

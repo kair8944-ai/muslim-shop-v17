@@ -14,6 +14,7 @@ import { BoutiqueStories } from './components/BoutiqueStories';
 import { CategoryFilter } from './components/CategoryFilter';
 import { SymptomSelector } from './components/SymptomSelector';
 import { SmartHealthBundles } from './components/SmartHealthBundles';
+import { FeaturedHealthBundleWidget } from './components/FeaturedHealthBundleWidget';
 import { RecentlyViewedSection } from './components/RecentlyViewedSection';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailModal } from './components/ProductDetailModal';
@@ -24,7 +25,6 @@ import { AdminModal } from './components/AdminModal';
 import { Footer } from './components/Footer';
 import { BottomNav, BottomNavTab } from './components/BottomNav';
 import { CatalogDrawer } from './components/CatalogDrawer';
-import { CartNotificationToast } from './components/CartNotificationToast';
 import { CompareBar, CompareModal } from './components/CompareModal';
 import { doesProductMatchSymptom, SYMPTOM_GOALS } from './utils/recommendations';
 import { scoreProductSearchMatch } from './utils/searchEngine';
@@ -162,12 +162,14 @@ function reconcileProductsWithCache(
           : incoming.images;
 
       // Prefer local delta override if explicitly modified locally, otherwise incoming Firestore state wins
-      const isLocallyUpserted = Boolean(delta.upsertedProducts && delta.upsertedProducts[incoming.id]);
-      const incomingStrictlyNewer = (incoming.createdAt || '') > (existing.createdAt || '');
-      const merged =
-        isLocallyUpserted && !incomingStrictlyNewer
-          ? mergeProductPreservingFields(incoming, existing)
-          : mergeProductPreservingFields(existing, incoming);
+      const localUpsert = delta.upsertedProducts?.[incoming.id];
+      const merged = localUpsert
+        ? {
+            ...incoming,
+            ...localUpsert,
+            images: hasCustomImage(localUpsert.images) ? localUpsert.images : resolvedImages,
+          }
+        : mergeProductPreservingFields(existing, incoming);
 
       mergedMap.set(incoming.id, {
         ...merged,
@@ -356,6 +358,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedSymptom, setSelectedSymptom] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'popular' | 'priceAsc' | 'priceDesc'>('popular');
+  const [cardViewMode, setCardViewMode] = useState<'large' | 'compact'>('large');
 
   // Modals state
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -365,13 +368,8 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
   const [bottomDrawerMode, setBottomDrawerMode] = useState<'catalog' | 'contact' | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [cartToastProduct, setCartToastProduct] = useState<Product | null>(null);
-  const cartToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDirectProductLoading, setIsDirectProductLoading] = useState<boolean>(false);
-  const [isExitGuardVisible, setIsExitGuardVisible] = useState<boolean>(false);
-  const exitGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isExitGuardArmedRef = useRef<boolean>(false);
-  const isExitPromptActiveRef = useRef<boolean>(false);
 
   // 1. Subscribe to Firestore & Universal Server Catalog Products with Deep Cache Reconciliation
   useEffect(() => {
@@ -390,10 +388,6 @@ export default function App() {
         saveProductsToLocalStorageCache(reconciled);
       }
 
-      if (reconciled.length > 0) {
-        autoSyncLocalProductsIfNeeded(reconciled).catch(() => {});
-      }
-
       setProducts((prev) => {
         if (prev.length !== reconciled.length) return reconciled;
         for (let i = 0; i < reconciled.length; i++) {
@@ -405,6 +399,25 @@ export default function App() {
       });
       setIsLoadingProducts(false);
     };
+
+    // Fast-path: immediately fetch server catalog or static snapshot so products appear at 0-20ms
+    fetch('/api/catalog')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.products) && data.products.length > 0) {
+          applyAndReconcileSnapshot(data.products);
+        }
+      })
+      .catch(() => {
+        fetch('./catalog-snapshot.json')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((snap) => {
+            if (snap && Array.isArray(snap.products) && snap.products.length > 0) {
+              applyAndReconcileSnapshot(snap.products);
+            }
+          })
+          .catch(() => {});
+      });
 
     const unsubscribe = subscribeToProducts(
       (firestoreProducts) => {
@@ -908,20 +921,6 @@ export default function App() {
         rePushGuard();
         return;
       }
-
-      // 10. User is on the main page root and pressed Back: prevent accidental exit from the site
-      if (!isExitPromptActiveRef.current) {
-        rePushGuard();
-        isExitPromptActiveRef.current = true;
-        setIsExitGuardVisible(true);
-        if (exitGuardTimerRef.current) {
-          clearTimeout(exitGuardTimerRef.current);
-        }
-        exitGuardTimerRef.current = setTimeout(() => {
-          isExitPromptActiveRef.current = false;
-          setIsExitGuardVisible(false);
-        }, 5000);
-      }
     };
 
     window.addEventListener('popstate', handleMobileBackNavigation);
@@ -946,14 +945,6 @@ export default function App() {
       } catch {}
       return next;
     });
-
-    if (cartToastTimerRef.current) {
-      clearTimeout(cartToastTimerRef.current);
-    }
-    setCartToastProduct(product);
-    cartToastTimerRef.current = setTimeout(() => {
-      setCartToastProduct(null);
-    }, 5000);
   };
 
   const handleAddBundleToCart = (bundleProducts: Product[], bundleTitle: string) => {
@@ -975,7 +966,7 @@ export default function App() {
     });
 
     showToast(
-      langRef.current === 'kz'
+      lang === 'kz'
         ? `✨ «${bundleTitle}» жиынтығы себетке қосылды (-10% жеңілдікпен)!`
         : `✨ Курс «${bundleTitle}» (${bundleProducts.length} шт.) добавлен в корзину со скидкой -10%!`
     );
@@ -1239,84 +1230,18 @@ export default function App() {
   return (
     <div
       id="app-root"
-      className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col pb-20 sm:pb-[74px] transition-colors bg-[#04120E] text-stone-100 text-base sm:text-[17px] leading-relaxed selection:bg-amber-400 selection:text-stone-950"
+      className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col pb-20 sm:pb-[74px] transition-colors bg-[#f4f5f7] text-slate-800 text-base sm:text-[17px] leading-relaxed selection:bg-emerald-600 selection:text-white"
     >
       {/* Toast Notification */}
       {toastMessage && (
         <div
           id="toast-notification"
-          className="fixed bottom-20 sm:bottom-22 left-1/2 -translate-x-1/2 z-[100] bg-[#071D16] text-white px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-amber-400 text-sm sm:text-base font-bold flex items-center gap-3 animate-bounce"
+          className="fixed bottom-20 sm:bottom-22 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl border border-slate-700 text-sm sm:text-base font-bold flex items-center gap-3"
         >
-          <div className="w-6 h-6 rounded-full bg-emerald-500 text-stone-950 flex items-center justify-center shrink-0">
-            <CheckCircle2 className="w-4 h-4 text-stone-950" />
+          <div className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-3.5 h-3.5 text-slate-950" />
           </div>
           <span>{toastMessage}</span>
-        </div>
-      )}
-
-      {/* Accidental Back-Press Exit Protection Banner on Mobile */}
-      {isExitGuardVisible && (
-        <div
-          id="mobile-exit-guard-banner"
-          className="fixed bottom-20 sm:bottom-22 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[440px] z-[140] bg-[#041A13] text-white p-4 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.75)] border-2 border-amber-400 animate-in fade-in slide-in-from-bottom-4 duration-200"
-        >
-          <div className="flex items-start justify-between gap-2.5 mb-2.5">
-            <div>
-              <h4 className="font-serif font-extrabold text-sm sm:text-base text-amber-300">
-                {lang === 'kz'
-                  ? 'Сіз MUSLIM SHOP басты бетіндесіз'
-                  : 'Вы на главной странице MUSLIM SHOP'}
-              </h4>
-              <p className="text-xs sm:text-sm text-emerald-100/90 mt-1 leading-relaxed">
-                {lang === 'kz'
-                  ? 'Сайттан шықпау үшін «Дүкенде қалу» түймесін басыңыз (немесе шығу үшін «Артқа» түймесін тағы басыңыз).'
-                  : 'Случайно нажали «Назад»? Нажмите «Остаться в магазине», чтобы продолжить покупки.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                isExitPromptActiveRef.current = false;
-                setIsExitGuardVisible(false);
-                try {
-                  window.history.pushState({ muslimShopGuard: true }, '');
-                } catch {}
-              }}
-              className="p-1.5 rounded-xl bg-[#0B241B] text-amber-300 hover:text-white border border-amber-500/25 cursor-pointer shrink-0"
-              aria-label="Закрыть"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                isExitPromptActiveRef.current = false;
-                setIsExitGuardVisible(false);
-                try {
-                  window.history.pushState({ muslimShopGuard: true }, '');
-                } catch {}
-              }}
-              className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
-            >
-              <span>{lang === 'kz' ? 'Дүкенде қалу' : 'Остаться в магазине'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                isExitPromptActiveRef.current = false;
-                setIsExitGuardVisible(false);
-                scrollToCatalog();
-                try {
-                  window.history.pushState({ muslimShopGuard: true }, '');
-                } catch {}
-              }}
-              className="py-2.5 px-3 rounded-xl bg-[#0B241B] hover:bg-[#113628] text-amber-300 border border-amber-500/30 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <span>{lang === 'kz' ? 'Каталогты көру' : 'Смотреть каталог'}</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -1324,9 +1249,9 @@ export default function App() {
       {isDirectProductLoading && !selectedProductForDetail && (
         <div
           id="direct-product-loader"
-          className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-[#071D16]/95 backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-amber-400/80 text-sm sm:text-base font-bold flex items-center gap-3 animate-pulse"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-xl border border-slate-700 text-sm sm:text-base font-bold flex items-center gap-3"
         >
-          <Loader2 className="w-5 h-5 text-amber-300 animate-spin shrink-0" />
+          <Loader2 className="w-5 h-5 text-[#C5A059] animate-spin shrink-0" />
           <span>{lang === 'kz' ? 'Өнім жүктелуде...' : 'Загружаем товар по ссылке...'}</span>
         </div>
       )}
@@ -1352,6 +1277,7 @@ export default function App() {
         onOpenCart={() => setIsCartOpen(true)}
         onOpenFavorites={() => setIsFavoritesOpen(true)}
         onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenCatalog={() => setBottomDrawerMode('catalog')}
       />
 
       {/* Hero Banner with Islamic Elegance & Boutique Highlights */}
@@ -1373,6 +1299,17 @@ export default function App() {
         onAddToCart={handleAddToCart}
         onSelectCategory={handleSelectCategoryAndScroll}
       />
+
+      {/* 9. Dynamic Interactive Bundle Showcase: «Польза в комплексе» (-10%) */}
+      {selectedCategoryId === 'cat-all' && searchQuery.trim() === '' && (
+        <FeaturedHealthBundleWidget
+          products={products}
+          config={config}
+          lang={lang}
+          onOpenProduct={handleOpenDetail}
+          onAddBundleToCart={handleAddBundleToCart}
+        />
+      )}
 
       {/* Category Nav Filter — All visible side-by-side without horizontal scrolling */}
       <CategoryFilter
@@ -1401,7 +1338,7 @@ export default function App() {
         {(selectedCategoryId !== 'cat-all' || selectedSymptom !== 'all' || searchQuery.trim() !== '') && (
           <div
             id="catalog-active-filter-bar"
-            className="mb-5 p-3 sm:p-4 rounded-2xl bg-[#092018] border border-amber-500/30 flex flex-wrap items-center justify-between gap-2.5 shadow-md"
+            className="mb-4 p-3 sm:p-3.5 rounded-xl bg-white border border-slate-200/90 flex flex-wrap items-center justify-between gap-2.5 shadow-xs"
           >
             <button
               type="button"
@@ -1410,9 +1347,9 @@ export default function App() {
                 setSelectedSymptom('all');
                 setSearchQuery('');
               }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/40 font-extrabold text-xs sm:text-sm transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
             >
-              <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
+              <ArrowLeft className="w-4 h-4 text-emerald-700 shrink-0" />
               <span>
                 {lang === 'kz'
                   ? `Артқа • Барлық өнімдерге оралу (${products.length})`
@@ -1427,18 +1364,18 @@ export default function App() {
                 setSelectedSymptom('all');
                 setSearchQuery('');
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B261C] hover:bg-rose-800/80 text-stone-100 hover:text-white border border-amber-500/25 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
             >
-              <X className="w-4 h-4 text-amber-300 shrink-0" />
-              <span>{lang === 'kz' ? 'Сүзгіні жабу' : 'Сбросить / Закрыть фильтр'}</span>
+              <X className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span>{lang === 'kz' ? 'Сүзгіні жабу' : 'Сбросить / Закрыть'}</span>
             </button>
           </div>
         )}
 
         {/* Title & Sorting Toolbar */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-7 border-b border-amber-500/20">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-200/80">
           <div>
-            <h2 className="font-serif font-extrabold text-2xl sm:text-4xl text-white flex items-center gap-3 flex-wrap tracking-tight leading-tight">
+            <h2 className="font-sans font-black text-xl sm:text-3xl text-slate-900 flex items-center gap-2.5 flex-wrap tracking-tight leading-tight">
               <span>
                 {selectedSymptom !== 'all' && SYMPTOM_GOALS.find((g) => g.id === selectedSymptom)
                   ? lang === 'kz'
@@ -1452,50 +1389,83 @@ export default function App() {
                   ? 'Барлық өнімдер'
                   : 'Все товары'}
               </span>
-              <span className="text-xs sm:text-sm font-mono tabular-nums px-3 py-1 rounded-xl bg-amber-400/15 text-amber-300 border border-amber-400/40 font-extrabold">
+              <span className="text-xs sm:text-sm font-mono tabular-nums px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">
                 {filteredProducts.length}
               </span>
             </h2>
-            <p className="text-sm sm:text-base text-emerald-200/80 mt-2 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5 leading-relaxed">
               {lang === 'kz'
                 ? 'Атыраудағы Бутик №24 сөрелеріндегі түпнұсқа өнімдер'
                 : 'Оригинальные сертифицированные товары в наличии в Бутике №24'}
             </p>
           </div>
 
-          {/* Sort selector */}
-          <div className="flex items-center gap-2.5">
-            <SlidersHorizontal className="w-4 h-4 text-amber-400" />
-            <select
-              id="sort-products-select"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="text-sm sm:text-base font-bold py-2.5 px-4 rounded-2xl border border-amber-500/30 bg-[#0B231B] text-stone-100 focus:outline-none focus:ring-2 focus:ring-amber-400/60 cursor-pointer shadow-md"
-            >
-              <option value="popular">{lang === 'kz' ? 'Танымалдығы бойынша' : 'Сначала популярные'}</option>
-              <option value="priceAsc">{lang === 'kz' ? 'Арзаннан қымбатқа' : 'Сначала недорогие'}</option>
-              <option value="priceDesc">{lang === 'kz' ? 'Қымбаттан арзанға' : 'Сначала премиум'}</option>
-            </select>
+          {/* Controls: View Mode + Sort selector */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            {/* View Mode Toggle: Large cards (1-col on mobile) vs Compact (2-col) */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-300 text-xs font-bold text-slate-700">
+              <button
+                type="button"
+                id="view-mode-large-btn"
+                onClick={() => setCardViewMode('large')}
+                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                  cardViewMode === 'large'
+                    ? 'bg-slate-900 text-white shadow-xs font-black'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title={lang === 'kz' ? 'Ірі карточкалар' : 'Крупные карточки'}
+              >
+                <span>{lang === 'kz' ? 'Ірі' : 'Крупно'}</span>
+              </button>
+              <button
+                type="button"
+                id="view-mode-compact-btn"
+                onClick={() => setCardViewMode('compact')}
+                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                  cardViewMode === 'compact'
+                    ? 'bg-slate-900 text-white shadow-xs font-black'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title={lang === 'kz' ? 'Ықшам тор' : 'Сетка'}
+              >
+                <span>{lang === 'kz' ? 'Тор' : 'Сетка'}</span>
+              </button>
+            </div>
+
+            {/* Sort selector */}
+            <div className="flex items-center gap-1.5">
+              <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+              <select
+                id="sort-products-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="text-xs sm:text-sm font-bold py-2 px-3 rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#C5A059]/30 focus:border-[#C5A059] cursor-pointer shadow-xs"
+              >
+                <option value="popular">{lang === 'kz' ? 'Танымалдығы бойынша' : 'Сначала популярные'}</option>
+                <option value="priceAsc">{lang === 'kz' ? 'Арзаннан қымбатқа' : 'Сначала недорогие'}</option>
+                <option value="priceDesc">{lang === 'kz' ? 'Қымбаттан арзанға' : 'Сначала премиум'}</option>
+              </select>
+            </div>
           </div>
         </div>
 
         {/* Loading Spinner during initial fetch */}
         {isLoadingProducts && products.length === 0 ? (
-          <div className="py-24 text-center space-y-4">
-            <Loader2 className="w-11 h-11 text-amber-400 animate-spin mx-auto" />
-            <p className="text-emerald-100/85 font-semibold text-base">
+          <div className="py-24 text-center space-y-3">
+            <Loader2 className="w-10 h-10 text-emerald-600 animate-spin mx-auto" />
+            <p className="text-slate-600 font-semibold text-sm">
               {lang === 'kz' ? 'Өнімдер жүктелуде...' : 'Загрузка товаров из каталога...'}
             </p>
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div id="catalog-empty-state" className="py-20 text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-[#0B231B] border border-amber-500/25 flex items-center justify-center text-amber-300 mx-auto">
-              <PackageSearch className="w-8 h-8" />
+          <div id="catalog-empty-state" className="py-16 text-center space-y-3 bg-white rounded-2xl border border-slate-200 p-6 my-6 shadow-xs">
+            <div className="w-14 h-14 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 mx-auto">
+              <PackageSearch className="w-7 h-7" />
             </div>
-            <h3 className="text-xl sm:text-2xl font-serif font-extrabold text-white">
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900">
               {lang === 'kz' ? 'Өнімдер табылмады' : 'Товары не найдены'}
             </h3>
-            <p className="text-sm sm:text-base text-emerald-200/75 max-w-md mx-auto leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
               {lang === 'kz'
                 ? 'Іздеу сұранысын өзгертіп көріңіз немесе басқа санатты таңдаңыз'
                 : 'Попробуйте изменить запрос в строке поиска или выберите другую категорию'}
@@ -1514,7 +1484,7 @@ export default function App() {
                   setIsLoadingProducts(false);
                 }
               }}
-              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 text-sm sm:text-base font-extrabold hover:from-amber-300 hover:to-amber-400 transition-colors shadow-lg cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs sm:text-sm font-bold hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer"
             >
               {products.length === 0
                 ? lang === 'kz'
@@ -1528,7 +1498,11 @@ export default function App() {
         ) : (
           <div
             id="products-grid"
-            className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3.5 sm:gap-6 mt-7"
+            className={
+              cardViewMode === 'large'
+                ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6 sm:gap-8 mt-7'
+                : 'grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3.5 sm:gap-6 mt-7'
+            }
           >
             {filteredProducts.slice(0, visibleLimit).map((product) => (
               <ProductCard
@@ -1536,6 +1510,7 @@ export default function App() {
                 product={product}
                 lang={lang}
                 accessibility={accessibility}
+                isLargeView={cardViewMode === 'large'}
                 isFavorite={favorites.some((f) => f.id === product.id)}
                 isInCart={cart.some((c) => c.product.id === product.id)}
                 isInCompare={compareList.some((c) => c.id === product.id)}
@@ -1604,22 +1579,22 @@ export default function App() {
       <section
         id="seo-about-section"
         aria-label="О магазине MUSLIM SHOP в Атырау"
-        className="w-full border-t border-amber-500/20 bg-[#061812] text-stone-200 transition-colors"
+        className="w-full border-t border-slate-200 bg-[#f4f5f7] text-slate-700 transition-colors"
       >
-        <div className="max-w-7xl mx-auto px-4 py-10 sm:py-14">
-          <div className="rounded-3xl p-6 sm:p-9 bg-gradient-to-br from-[#0B231B] to-[#071712] border border-amber-500/25 shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
-            <h2 className="font-serif font-extrabold text-xl sm:text-3xl text-amber-300 mb-5 leading-snug">
+        <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
+          <div className="rounded-2xl p-5 sm:p-8 bg-white border border-slate-200/90 shadow-xs">
+            <h2 className="font-sans font-bold text-lg sm:text-2xl text-slate-900 mb-4 leading-snug">
               MUSLIM SHOP — купить халяль витамины в Атырау, товары iHerb и натуральные БАДы (Бутик №24)
             </h2>
-            <div className="space-y-4 text-sm sm:text-base leading-relaxed text-emerald-100/85">
+            <div className="space-y-3.5 text-xs sm:text-sm leading-relaxed text-slate-600">
               <p>
-                В <strong className="text-white">MUSLIM SHOP</strong> в Атырау вы можете <strong className="text-amber-200">купить халяль витамины в Атырау</strong>, оригинальные витамины <strong className="text-amber-200">iHerb</strong>, сертифицированные <strong className="text-amber-200">БАДы</strong> для мужского и женского здоровья, натуральный мёд, масло чёрного тмина, товары для хиджамы и стойкие мусульманские ароматы (миски). Мы находимся в удобной локации: <strong className="text-white">г. Атырау, ТД «Дина Байзар», Бутик №24</strong>. Все представленные в каталоге позиции проходят строгий отбор качества и соответствуют стандартам Халяль.
+                В <strong className="text-slate-900">MUSLIM SHOP</strong> в Атырау вы можете <strong className="text-[#0567BA]">купить халяль витамины в Атырау</strong>, оригинальные витамины <strong className="text-[#0567BA]">iHerb</strong>, сертифицированные <strong className="text-[#0567BA]">БАДы</strong> для мужского и женского здоровья, натуральный мёд, масло чёрного тмина, товары для хиджамы и стойкие мусульманские ароматы (миски). Мы находимся в удобной локации: <strong className="text-slate-900">г. Атырау, ТД «Дина Байзар», Бутик №24</strong>. Все представленные в каталоге позиции проходят строгий отбор качества и соответствуют стандартам Халяль.
               </p>
               <p>
-                В нашем ассортименте собраны проверенные комплексы и <strong className="text-amber-200">БАДы</strong> мировых брендов <strong className="text-amber-200">iHerb</strong> (Now Foods, California Gold Nutrition, Solgar, Swanson, Life-flo, ChildLife), натуральные травяные пасты, эпимедиумные и медовые сборы, средства для укрепления иммунитета, суставов, красоты кожи и роста волос. Если вы ищете, где выгодно <strong className="text-amber-200">купить халяль витамины в Атырау</strong> без ожидания долгой зарубежной пересылки — в <strong className="text-white">Бутике №24</strong> самые востребованные товары уже в наличии на полках.
+                В нашем ассортименте собраны проверенные комплексы и <strong className="text-[#0567BA]">БАДы</strong> мировых брендов <strong className="text-[#0567BA]">iHerb</strong> (Now Foods, California Gold Nutrition, Solgar, Swanson, Life-flo, ChildLife), натуральные травяные пасты, эпимедиумные и медовые сборы, средства для укрепления иммунитета, суставов, красоты кожи и роста волос. Если вы ищете, где выгодно <strong className="text-[#0567BA]">купить халяль витамины в Атырау</strong> без ожидания долгой зарубежной пересылки — в <strong className="text-slate-900">Бутике №24</strong> самые востребованные товары уже в наличии на полках.
               </p>
               <p>
-                Наш магазин работает для вас <strong className="text-white">ежедневно с 10:00 до 19:00</strong>. Вы можете оформить заказ прямо на сайте <strong className="text-amber-300">muslimshop.kz</strong> или через WhatsApp в 1 клик: действует оперативная курьерская доставка по городу Атырау в день обращения, удобный самовывоз из <strong className="text-white">Бутика №24</strong>, а также быстрая и надёжная <strong className="text-amber-200">доставка по Казахстану</strong> (Казпочта, СДЭК и курьерские службы во все регионы РК).
+                Наш магазин работает для вас <strong className="text-slate-900">ежедневно с 10:00 до 19:00</strong>. Вы можете оформить заказ прямо на сайте <strong className="text-[#0567BA]">muslimshop.kz</strong> или через WhatsApp в 1 клик: действует оперативная курьерская доставка по городу Атырау в день обращения, удобный самовывоз из <strong className="text-slate-900">Бутика №24</strong>, а также быстрая и надёжная <strong className="text-[#0567BA]">доставка по Казахстану</strong> (Казпочта, СДЭК и курьерские службы во все регионы РК).
               </p>
             </div>
           </div>
@@ -1680,20 +1655,6 @@ export default function App() {
           onClose={() => setIsCartOpen(false)}
         />
       )}
-
-      {/* Rich Add-to-Cart Notification Toast */}
-      <CartNotificationToast
-        product={cartToastProduct}
-        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
-        cartTotal={cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)}
-        lang={lang}
-        onOpenCart={() => {
-          setSelectedProductForDetail(null);
-          setIsCartOpen(true);
-        }}
-        onRemoveFromCart={handleRemoveFromCart}
-        onClose={() => setCartToastProduct(null)}
-      />
 
       {/* Floating Comparison Bar & Side-by-Side Comparison Modal (up to 3 products) */}
       <CompareBar
@@ -1896,15 +1857,13 @@ export default function App() {
         lang={lang}
       />
 
-      {/* 7. Fixed Bottom Navigation Bar (Главная • Каталог • Корзина • Избранное • Связь) */}
+      {/* 7. Fixed Bottom Navigation Bar (Главная • Каталог • Поиск • Корзина • Админ) */}
       <BottomNav
         activeTab={
-          (isCartOpen
+          (isAdminOpen
+            ? 'admin'
+            : isCartOpen
             ? 'cart'
-            : isFavoritesOpen
-            ? 'favorites'
-            : bottomDrawerMode === 'contact'
-            ? 'contact'
             : bottomDrawerMode === 'catalog' || selectedCategoryId !== 'cat-all'
             ? 'catalog'
             : 'home') as BottomNavTab
@@ -1912,11 +1871,11 @@ export default function App() {
         lang={lang}
         accessibility={accessibility}
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
-        favoritesCount={favorites.length}
         onSelectHome={() => {
           setBottomDrawerMode(null);
           setIsCartOpen(false);
           setIsFavoritesOpen(false);
+          setIsAdminOpen(false);
           setSelectedCategoryId('cat-all');
           setSearchQuery('');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1924,22 +1883,31 @@ export default function App() {
         onOpenCatalog={() => {
           setIsCartOpen(false);
           setIsFavoritesOpen(false);
+          setIsAdminOpen(false);
           setBottomDrawerMode((prev) => (prev === 'catalog' ? null : 'catalog'));
+        }}
+        onOpenSearch={() => {
+          setIsCartOpen(false);
+          setIsFavoritesOpen(false);
+          setIsAdminOpen(false);
+          setBottomDrawerMode(null);
+          const el = document.getElementById('header-search-input');
+          if (el) {
+            el.focus();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
         }}
         onOpenCart={() => {
           setBottomDrawerMode(null);
           setIsFavoritesOpen(false);
+          setIsAdminOpen(false);
           setIsCartOpen((prev) => !prev);
         }}
-        onOpenFavorites={() => {
+        onOpenAdmin={() => {
           setBottomDrawerMode(null);
           setIsCartOpen(false);
-          setIsFavoritesOpen((prev) => !prev);
-        }}
-        onOpenContact={() => {
-          setIsCartOpen(false);
           setIsFavoritesOpen(false);
-          setBottomDrawerMode((prev) => (prev === 'contact' ? null : 'contact'));
+          setIsAdminOpen(true);
         }}
       />
     </div>

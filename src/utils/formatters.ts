@@ -186,6 +186,29 @@ export function generateWhatsAppOrderUrl(
   return `https://wa.me/${config.whatsappNumber}?text=${encoded}`;
 }
 
+export function generateWhatsAppCartUrl(
+  config: StoreConfig,
+  items: CartItem[],
+  customerName: string,
+  customerPhone: string,
+  customerAddress: string,
+  deliveryMethod: DeliveryMethod,
+  lang: Language,
+  _discountAmount?: number
+): string {
+  return generateWhatsAppOrderUrl(
+    config,
+    items,
+    {
+      name: customerName,
+      phone: customerPhone,
+      address: customerAddress,
+      deliveryMethod,
+    },
+    lang
+  );
+}
+
 export function generateQuickOrderUrl(
   config: StoreConfig,
   productTitle: string,

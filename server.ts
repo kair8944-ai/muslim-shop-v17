@@ -120,19 +120,18 @@ function rebuildCatalogBuffers(payload: CatalogPayload, saveToDisk: boolean = fa
   catalogCache = payload;
   const rawJson = JSON.stringify(payload);
   catalogJsonBuffer = Buffer.from(rawJson, 'utf-8');
-  try {
-    catalogGzipBuffer = zlib.gzipSync(catalogJsonBuffer, { level: 6 });
-  } catch {
-    catalogGzipBuffer = null;
-  }
+
+  // Fast level 1 gzip in background without blocking event loop
+  zlib.gzip(catalogJsonBuffer, { level: 1 }, (err, result) => {
+    if (!err && result) {
+      catalogGzipBuffer = result;
+    }
+  });
 
   if (saveToDisk) {
-    try {
-      fs.mkdirSync(path.dirname(SNAPSHOT_FILE_PATH), { recursive: true });
-      fs.writeFileSync(SNAPSHOT_FILE_PATH, rawJson);
-    } catch (e) {
+    fs.promises.writeFile(SNAPSHOT_FILE_PATH, rawJson).catch((e) => {
       console.warn('Could not persist catalog snapshot to disk:', e);
-    }
+    });
   }
 }
 

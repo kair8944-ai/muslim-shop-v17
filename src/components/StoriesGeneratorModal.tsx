@@ -684,10 +684,10 @@ export const StoriesGeneratorModal: React.FC<StoriesGeneratorProps> = ({
     ctx.font = '900 44px Inter, system-ui, sans-serif';
     ctx.fillText(`📞 ${phoneDisplay}  •  muslimshop.kz`, W / 2, footerY + 64);
 
-    if (config.addressRu) {
+    if (config.address) {
       ctx.fillStyle = activeTheme.textSecondary;
       ctx.font = '600 24px Inter, system-ui, sans-serif';
-      ctx.fillText(`📍 ${config.addressRu}`, W / 2, footerY + 114);
+      ctx.fillText(`📍 ${config.address}`, W / 2, footerY + 114);
     }
 
     setIsRendering(false);

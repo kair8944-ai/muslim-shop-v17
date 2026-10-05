@@ -71,25 +71,25 @@ export const SymptomSelector: React.FC<SymptomSelectorProps> = ({
     <section
       id="symptom-selector-section"
       aria-label={isKz ? 'Мақсат бойынша таңдау' : 'Подбор товаров по задаче и симптомам'}
-      className="w-full bg-[#071A14] border-b border-amber-500/15 transition-colors"
+      className="w-full bg-white border-b border-slate-200/80 transition-colors"
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-7">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5">
         {/* Header Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400/20 to-amber-500/10 border border-amber-400/40 text-amber-300 flex items-center justify-center shadow-sm shrink-0">
-              <Stethoscope className="w-5 h-5" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shadow-xs shrink-0">
+              <Stethoscope className="w-4.5 h-4.5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="font-serif font-extrabold text-lg sm:text-2xl text-white leading-tight">
+              <h2 className="font-sans font-bold text-sm sm:text-base text-slate-900 leading-tight">
                 {isKz
                   ? 'Сізді не мазалайды? Мақсат бойынша жылдам таңдау'
                   : 'Что вас беспокоит? Умный подбор по задаче'}
               </h2>
-              <p className="text-xs sm:text-sm text-emerald-200/75 mt-1 leading-relaxed">
+              <p className="text-xs text-slate-500 mt-0.5 leading-snug">
                 {isKz
                   ? 'Дәрумен атын білмесеңіз, қажетті бағытты басыңыз — лайықты өнімдер бірден шығады'
-                  : 'Не знаете точное название витамина? Выберите свою задачу — мы покажем подходящие средства'}
+                  : 'Выберите направление — мы покажем подходящие сертифицированные комплексы'}
               </p>
             </div>
           </div>
@@ -99,16 +99,16 @@ export const SymptomSelector: React.FC<SymptomSelectorProps> = ({
               type="button"
               id="reset-symptom-btn"
               onClick={() => onSelectSymptom('all')}
-              className="self-start sm:self-auto px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-md transition-colors cursor-pointer whitespace-nowrap"
+              className="self-start sm:self-auto px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
             >
-              <RotateCcw className="w-4 h-4" />
-              <span>{isKz ? 'Таңдауды тазалау' : 'Показать все товары'}</span>
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{isKz ? 'Барлық өнімдер' : 'Показать все товары'}</span>
             </button>
           )}
         </div>
 
         {/* Interactive Goal Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
           {SYMPTOM_GOALS.map((goal) => {
             const isActive = selectedSymptom === goal.id;
             const count = symptomCounts[goal.id] || 0;
@@ -125,40 +125,36 @@ export const SymptomSelector: React.FC<SymptomSelectorProps> = ({
                     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }
                 }}
-                className={`group text-left p-3.5 rounded-2xl border transition-all duration-150 flex flex-col justify-between gap-2.5 cursor-pointer ${
+                className={`group text-left p-2.5 sm:p-3 rounded-xl border transition-all duration-150 flex flex-col justify-between gap-1.5 cursor-pointer shadow-xs ${
                   isActive
-                    ? 'bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-stone-950 border-amber-200 shadow-lg shadow-amber-500/20 ring-2 ring-amber-300/60 -translate-y-0.5'
-                    : 'bg-[#0C261D] hover:bg-[#113327] text-stone-100 border-amber-500/20 hover:border-amber-400/50 shadow-sm'
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm ring-2 ring-emerald-400'
+                    : 'bg-slate-50 hover:bg-emerald-50/60 text-slate-800 border-slate-200/90 hover:border-emerald-300'
                 }`}
               >
-                <div className="flex items-center justify-between gap-1.5 w-full">
-                  {getIcon(goal.id, isActive)}
-                  <span
-                    className={`text-xs font-mono tabular-nums font-extrabold px-1.5 py-0.5 rounded-md ${
-                      isActive
-                        ? 'bg-stone-950 text-amber-300'
-                        : 'bg-[#061510] text-amber-300/90 group-hover:text-amber-300'
-                    }`}
-                  >
-                    {count}
-                  </span>
+                <div className="flex items-center justify-between gap-1">
+                  <div className={`p-1 rounded-lg ${isActive ? 'bg-emerald-700 text-white' : 'bg-white text-emerald-700 shadow-xs'}`}>
+                    {getIcon(goal.id, isActive)}
+                  </div>
+                  {count > 0 && (
+                    <span
+                      className={`text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded font-bold ${
+                        isActive
+                          ? 'bg-emerald-800 text-white'
+                          : 'bg-white text-slate-500 border border-slate-200'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
                 </div>
-
                 <div>
                   <div
-                    className={`font-extrabold text-sm leading-snug line-clamp-2 ${
-                      isActive ? 'text-stone-950' : 'text-white group-hover:text-amber-200'
+                    className={`font-bold text-xs leading-tight ${
+                      isActive ? 'text-white' : 'text-slate-900 group-hover:text-emerald-700'
                     }`}
                   >
                     {isKz ? goal.titleKz : goal.titleRu}
                   </div>
-                  <p
-                    className={`text-xs mt-1 line-clamp-1 font-medium ${
-                      isActive ? 'text-stone-900' : 'text-emerald-200/75'
-                    }`}
-                  >
-                    {isKz ? goal.badgeKz : goal.badgeRu}
-                  </p>
                 </div>
               </button>
             );
@@ -167,22 +163,22 @@ export const SymptomSelector: React.FC<SymptomSelectorProps> = ({
 
         {/* Active Goal Explanation Bar */}
         {activeGoal && (
-          <div className="mt-4 p-3.5 sm:px-5 rounded-2xl bg-[#0D2C21] text-white border border-amber-400/45 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-md">
-            <div className="flex items-center gap-2.5 text-sm sm:text-base leading-relaxed">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          <div className="mt-3.5 p-3 sm:px-4 rounded-xl bg-emerald-50 text-emerald-950 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-2 text-xs sm:text-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
               <div>
-                <span className="font-extrabold text-amber-300">
+                <span className="font-bold text-emerald-900">
                   {isKz ? activeGoal.titleKz : activeGoal.titleRu}:
                 </span>{' '}
-                <span className="text-emerald-100">
+                <span className="text-emerald-800">
                   {isKz ? activeGoal.subtitleKz : activeGoal.subtitleRu}
                 </span>
               </div>
             </div>
-            <span className="text-xs sm:text-sm font-mono tabular-nums text-amber-300 font-extrabold shrink-0">
+            <span className="text-xs font-mono tabular-nums text-emerald-700 font-bold shrink-0">
               {isKz
                 ? `Табылды: ${symptomCounts[activeGoal.id] || 0} өнім`
-                : `Подходит товаров: ${symptomCounts[activeGoal.id] || 0}`}
+                : `Подходит: ${symptomCounts[activeGoal.id] || 0} товаров`}
             </span>
           </div>
         )}

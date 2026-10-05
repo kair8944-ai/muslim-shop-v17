@@ -193,10 +193,10 @@ export const CompareModal: React.FC<CompareModalProps> = ({
 
   // Sticky left column classes so characteristic labels remain pinned during horizontal scroll
   const stickyLeftHeaderClass =
-    'sticky left-0 z-20 w-[116px] min-w-[116px] max-w-[116px] sm:w-[175px] sm:min-w-[175px] sm:max-w-[175px] bg-[#061812] border-r border-amber-500/20 p-3 sm:p-4 text-xs sm:text-sm font-extrabold text-amber-300 align-top shadow-[4px_0_12px_rgba(0,0,0,0.45)]';
+    'sticky left-0 z-20 w-[116px] min-w-[116px] max-w-[116px] sm:w-[175px] sm:min-w-[175px] sm:max-w-[175px] bg-slate-100 border-r border-slate-300 p-3 sm:p-4 text-xs sm:text-sm font-bold text-slate-800 align-top shadow-[4px_0_12px_rgba(0,0,0,0.08)]';
 
   const productColClass =
-    'w-[186px] min-w-[186px] max-w-[186px] sm:w-[250px] sm:min-w-[250px] sm:max-w-[250px] p-3 sm:p-4 align-top border-r border-amber-500/15 last:border-r-0 bg-[#0A2018]/60';
+    'w-[186px] min-w-[186px] max-w-[186px] sm:w-[250px] sm:min-w-[250px] sm:max-w-[250px] p-3 sm:p-4 align-top border-r border-slate-200 last:border-r-0 bg-white';
 
   return createPortal(
     <motion.div
@@ -204,7 +204,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-      className="CompareModal fixed inset-0 z-[120] bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden"
+      className="CompareModal fixed inset-0 z-[120] bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden"
       onClick={onClose}
     >
       <motion.div
@@ -213,25 +213,25 @@ export const CompareModal: React.FC<CompareModalProps> = ({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-full max-h-[92vh] sm:max-h-[90vh] sm:max-w-4xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col bg-[#051510] text-stone-100 border border-amber-500/30"
+        className="w-full max-w-full max-h-[92vh] sm:max-h-[90vh] sm:max-w-4xl rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col bg-white text-slate-800 border border-slate-200"
       >
         {/* Top Modal Header */}
-        <div className="bg-[#030E0A] text-white px-3.5 sm:px-6 py-3.5 flex items-center justify-between gap-2 border-b border-amber-500/25 shrink-0">
+        <div className="bg-[#9dd0ff] text-slate-900 px-3.5 sm:px-6 py-3 flex items-center justify-between gap-2 border-b border-[#83bfea] shrink-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={onClose}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/40 font-extrabold text-xs sm:text-sm transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs sm:text-sm transition-colors cursor-pointer shrink-0 shadow-xs"
               title={isKz ? 'Артқа оралу' : 'Назад в каталог'}
             >
-              <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
+              <ArrowLeft className="w-4 h-4 text-[#0567BA] shrink-0" />
               <span>{isKz ? 'Артқа' : 'Назад'}</span>
             </button>
             <div className="min-w-0">
-              <h2 className="font-serif font-extrabold text-base sm:text-xl text-white truncate">
+              <h2 className="font-sans font-bold text-base sm:text-xl text-slate-900 truncate">
                 {isKz ? 'Тауарларды салыстыру' : 'Сравнение товаров'}
               </h2>
-              <p className="text-xs text-emerald-200/80 truncate mt-0.5 hidden sm:block">
+              <p className="text-xs text-slate-600 truncate mt-0.5 hidden sm:block">
                 {isKz
                   ? 'Сипаттамалар сол жақта бекітілген • Оңға сырғытыңыз →'
                   : 'Заголовки слева закреплены • Листайте таблицу вбок →'}
@@ -367,14 +367,14 @@ export const CompareModal: React.FC<CompareModalProps> = ({
           {/* HORIZONTALLY SCROLLABLE TABLE WITH STICKY LEFT HEADER COLUMN */}
           <div
             id="compare-scroll-table-wrapper"
-            className="w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-amber-500/25 bg-[#071A14] shadow-lg"
+            className="w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200 bg-white shadow-xs"
           >
             <table className="w-max min-w-full border-collapse text-left">
               <thead>
-                <tr className="border-b border-amber-500/25">
+                <tr className="border-b border-slate-200">
                   {/* Top-Left Sticky Corner Cell */}
-                  <th className="sticky left-0 z-30 w-[116px] min-w-[116px] max-w-[116px] sm:w-[175px] sm:min-w-[175px] sm:max-w-[175px] bg-[#030E0A] text-white p-3 sm:p-4 align-middle border-r border-amber-500/25 shadow-[4px_0_12px_rgba(0,0,0,0.5)]">
-                    <div className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-amber-300">
+                  <th className="sticky left-0 z-30 w-[116px] min-w-[116px] max-w-[116px] sm:w-[175px] sm:min-w-[175px] sm:max-w-[175px] bg-slate-100 text-slate-900 p-3 sm:p-4 align-middle border-r border-slate-300 shadow-[4px_0_12px_rgba(0,0,0,0.08)]">
+                    <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-800">
                       {isKz ? 'Параметрлер' : 'Параметры'}
                     </div>
                     <div className="text-[11px] text-emerald-200/80 font-normal mt-1 leading-snug">

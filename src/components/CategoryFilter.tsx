@@ -25,40 +25,40 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
     <section
       id="category-nav-bar"
       aria-label={isKz ? 'Санаттар каталогы' : 'Каталог категорий'}
-      className="w-full max-w-full overflow-x-hidden bg-[#051510] border-b border-amber-500/15 py-6 sm:py-7"
+      className="w-full bg-slate-50 border-b border-slate-200 py-6 sm:py-8"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         {/* Header toolbar for Categories */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400/20 to-amber-500/10 border border-amber-400/40 text-amber-300 flex items-center justify-center shadow-sm shrink-0">
-              <Layers className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-[#C5A059] flex items-center justify-center shrink-0 shadow-xs">
+              <Layers className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-2xl font-serif font-extrabold text-white flex items-center gap-2.5 flex-wrap">
-                <span>{isKz ? 'Каталог бөлімдері' : 'Каталоги товаров'}</span>
-                <span className="text-xs font-sans font-extrabold px-2.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/40">
-                  {categories.length} {isKz ? 'санат' : 'направлений'}
+              <h2 className="text-lg sm:text-2xl font-black text-slate-900 flex items-center gap-2 flex-wrap">
+                <span>{isKz ? 'Каталог бөлімдері' : 'Категории товаров'}</span>
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-slate-200 text-slate-800">
+                  {categories.length}
                 </span>
               </h2>
-              <p className="text-xs sm:text-sm text-emerald-200/75 mt-1 leading-relaxed">
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5 leading-snug">
                 {isKz
-                  ? 'Барлық бөлімдер алдыңызда — кез келгенін таңдап өнімдерді көріңіз'
-                  : 'Все категории наглядно перед вами — нажмите на нужную для быстрого выбора'}
+                  ? 'Өзіңізге қажетті бөлімді таңдаңыз'
+                  : 'Выберите категорию для быстрого перехода к нужным товарам'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             {selectedCategoryId !== 'cat-all' && (
               <button
                 type="button"
                 id="reset-category-filter-btn"
                 onClick={() => onSelectCategory('cat-all')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-[#0E2C21] hover:bg-[#153D2E] text-amber-300 border border-amber-500/30 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-200 hover:bg-slate-300 text-slate-800 transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>{isKz ? 'Барлығын көрсету' : 'Сбросить фильтр'}</span>
+                <span>{isKz ? 'Барлық тауарлар' : 'Все товары'}</span>
               </button>
             )}
 
@@ -68,21 +68,21 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
                 id="manage-categories-btn"
                 onClick={onOpenAdminCategories}
                 title={isKz ? 'Каталогтарды баптау' : 'Управление каталогами'}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-[#0B221A] hover:bg-[#113126] text-emerald-200 hover:text-amber-300 border border-amber-500/25 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition-colors cursor-pointer shadow-2xs"
               >
-                <Settings2 className="w-4 h-4 text-amber-400" />
+                <Settings2 className="w-4 h-4 text-slate-600" />
                 <span className="hidden sm:inline">
-                  {isKz ? 'Каталогтарды өзгерту' : 'Настроить каталоги'}
+                  {isKz ? 'Баптау' : 'Управление'}
                 </span>
               </button>
             )}
           </div>
         </div>
 
-        {/* ALL CATEGORIES LAID OUT SIDE-BY-SIDE (NO HORIZONTAL SCROLL) */}
+        {/* Categories Chips Grid */}
         <div
           id="category-grid-chips"
-          className="flex flex-wrap items-center gap-2 sm:gap-3"
+          className="flex flex-wrap items-center gap-2.5 sm:gap-3"
         >
           {categories.map((cat) => {
             const isSelected = selectedCategoryId === cat.id;
@@ -95,30 +95,26 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
                 id={`cat-btn-${cat.id}`}
                 type="button"
                 onClick={() => onSelectCategory(cat.id)}
-                className={`group inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-sm sm:text-base font-bold transition-all cursor-pointer select-none active:scale-97 ${
+                className={`group inline-flex items-center gap-2.5 px-4 sm:px-5 py-3 sm:py-3.5 rounded-2xl text-sm sm:text-base font-extrabold transition-all cursor-pointer select-none active:scale-97 shadow-xs min-h-[48px] sm:min-h-[52px] ${
                   isSelected
-                    ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 text-stone-950 shadow-lg shadow-amber-500/20 ring-2 ring-amber-300 border-transparent'
-                    : 'bg-[#0B221A] hover:bg-[#113126] text-stone-100 border border-amber-500/20 hover:border-amber-400/50 shadow-sm'
+                    ? 'bg-slate-900 text-white border-2 border-[#C5A059] shadow-sm'
+                    : 'bg-white hover:bg-slate-100 text-slate-800 border-2 border-slate-200'
                 }`}
               >
-                <span className="text-lg sm:text-xl leading-none transition-transform group-hover:scale-110">
+                <span className="text-xl sm:text-2xl leading-none shrink-0">
                   {cat.icon || '✨'}
                 </span>
 
-                <span
-                  className={`tracking-tight ${
-                    isSelected ? 'text-stone-950 font-extrabold' : 'text-stone-100 group-hover:text-white'
-                  }`}
-                >
+                <span className="tracking-tight">
                   {catName}
                 </span>
 
                 {count > 0 && (
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-extrabold transition-colors tabular-nums ${
+                    className={`text-xs sm:text-sm font-mono px-2 py-0.5 rounded-md font-bold tabular-nums ${
                       isSelected
-                        ? 'bg-stone-950 text-amber-300 shadow-xs'
-                        : 'bg-[#061510] text-amber-300/90 border border-amber-500/25 group-hover:border-amber-400/50'
+                        ? 'bg-slate-800 text-[#C5A059]'
+                        : 'bg-slate-100 text-slate-700'
                     }`}
                   >
                     {count}

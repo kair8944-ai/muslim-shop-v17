@@ -67,28 +67,28 @@ export const AccessibilityModal: React.FC<AccessibilityModalProps> = ({
     >
       <div
         id="accessibility-modal-dialog"
-        className="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl border-2 border-emerald-800/30 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150"
+        className="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="accessibility-modal-title"
       >
         {/* Header */}
-        <div className="bg-emerald-950 text-white px-5 sm:px-6 py-4.5 flex items-center justify-between border-b border-emerald-900">
+        <div className="bg-[#0567BA] text-white px-5 sm:px-6 py-4.5 flex items-center justify-between border-b border-[#045294]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-[#ffbd00] text-slate-900 flex items-center justify-center font-bold shadow-md shrink-0">
               <Eye className="w-6 h-6" />
             </div>
             <div>
               <h2
                 id="accessibility-modal-title"
-                className="font-serif font-bold text-lg sm:text-xl text-amber-200 leading-tight"
+                className="font-sans font-bold text-lg sm:text-xl text-white leading-tight"
               >
                 {isKz
                   ? 'Нашар көретіндер мен қарт кісілерге'
                   : 'Для слабовидящих и пожилых'}
               </h2>
-              <p className="text-xs text-emerald-300/90 mt-0.5">
+              <p className="text-xs text-white/80 mt-0.5">
                 {isKz
                   ? 'Көзілдіріксіз ыңғайлы оқу үшін шрифт пен контрастты баптаңыз'
                   : 'Настройка крупного шрифта и контрастности для лёгкого чтения'}
@@ -98,7 +98,7 @@ export const AccessibilityModal: React.FC<AccessibilityModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-emerald-200 hover:text-white hover:bg-emerald-900/80 transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
             aria-label="Закрыть окно"
           >
             <X className="w-6 h-6" />
@@ -322,9 +322,9 @@ export const AccessibilityModal: React.FC<AccessibilityModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-sm transition-all shadow-md cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#0567BA] hover:bg-[#045294] text-white font-bold text-sm transition-all shadow-md cursor-pointer active:scale-95"
           >
-            <Check className="w-4 h-4 text-amber-300" />
+            <Check className="w-4 h-4 text-[#ffbd00]" />
             <span>{isKz ? 'Қолдану және жабу' : 'Применить и закрыть'}</span>
           </button>
         </div>

@@ -1,9 +1,21 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Minus, Trash2, ShoppingBag, MessageCircle, MapPin, Truck, Check, Sparkles, ArrowLeft, Clock } from 'lucide-react';
-import { CartItem, DeliveryMethod, Language, Product, StoreConfig } from '../types';
-import { formatPrice, generateWhatsAppOrderUrl } from '../utils/formatters';
-import { getCartRecommendations } from '../utils/recommendations';
+import {
+  X,
+  Trash2,
+  Plus,
+  Minus,
+  MessageCircle,
+  ShoppingBag,
+  Sparkles,
+  ArrowLeft,
+  Truck,
+  Building2,
+  Clock,
+  CheckCircle2,
+} from 'lucide-react';
+import { CartItem, Language, Product, StoreConfig } from '../types';
+import { formatPrice, generateWhatsAppCartUrl } from '../utils/formatters';
 
 interface CartDrawerProps {
   items: CartItem[];
@@ -35,8 +47,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('delivery');
-  const [orderNotes, setOrderNotes] = useState('');
+  const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup' | 'post'>('delivery');
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -55,73 +66,70 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Complex bundle discount: -10% if 3+ items in cart
   const hasBundleDiscount = totalQty >= 3;
   const discountAmount = hasBundleDiscount ? Math.round(total * 0.1) : 0;
   const finalTotal = total - discountAmount;
 
-  const cartRecommendations = useMemo(
-    () =>
-      getCartRecommendations(
-        items.map((i) => i.product),
-        allProducts,
-        3
-      ),
-    [items, allProducts]
-  );
+  // Cart recommendations (products not yet in cart)
+  const cartProductIds = new Set(items.map((i) => i.product.id));
+  const cartRecommendations = allProducts
+    .filter((p) => !cartProductIds.has(p.id) && p.inStock)
+    .slice(0, 3);
 
   const handleWhatsAppCheckout = (e: React.FormEvent) => {
     e.preventDefault();
     if (items.length === 0) return;
 
-    const url = generateWhatsAppOrderUrl(
+    const url = generateWhatsAppCartUrl(
       config,
       items,
-      {
-        name: customerName.trim() || (lang === 'kz' ? 'Тұтынушы' : 'Покупатель'),
-        phone: customerPhone.trim() || '',
-        address: customerAddress.trim(),
-        deliveryMethod,
-        notes: orderNotes.trim(),
-      },
-      lang
+      customerName.trim() || (lang === 'kz' ? 'Тұтынушы' : 'Покупатель'),
+      customerPhone.trim() || '',
+      customerAddress.trim() || '',
+      deliveryMethod,
+      lang,
+      hasBundleDiscount ? discountAmount : 0
     );
 
     window.open(url, '_blank', 'noopener,noreferrer');
+    onClose();
   };
 
   return createPortal(
     <div
       id="cart-drawer-backdrop"
-      className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex justify-end overflow-hidden"
+      className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex justify-end overflow-hidden animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
         id="cart-drawer-container"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg bg-[#051611] text-stone-100 border-l border-amber-500/25 h-full flex flex-col shadow-2xl overflow-hidden"
+        className="w-full max-w-lg bg-white text-slate-800 border-l border-slate-200 h-full flex flex-col shadow-2xl overflow-hidden"
       >
-        {/* Header — Guaranteed full visibility of Корзина without truncation */}
+        {/* Flip.kz Signature Deep Blue Header */}
         <div
           id="cart-header"
-          className="px-3.5 py-3 sm:p-5 bg-[#030D0A] text-white flex items-center justify-between gap-2 border-b border-amber-500/25 shrink-0"
+          className="px-4 py-3 sm:py-3.5 bg-[#0567BA] text-white flex items-center justify-between gap-2 border-b border-[#045294] shrink-0"
         >
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/40 font-extrabold text-[12px] sm:text-sm transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm transition-colors cursor-pointer shrink-0"
             title={lang === 'kz' ? 'Артқа' : 'Назад в каталог'}
           >
-            <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
+            <ArrowLeft className="w-4 h-4 text-white shrink-0" />
             <span>{lang === 'kz' ? 'Артқа' : 'Назад'}</span>
           </button>
 
-          <div className="flex items-center justify-center gap-1.5 min-w-0">
-            <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 shrink-0" />
-            <h2 className="font-extrabold text-[clamp(15px,4.3vw,20px)] sm:text-xl font-serif whitespace-nowrap">
+          <div className="flex items-center justify-center gap-2 min-w-0">
+            <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 text-[#ffbd00] shrink-0" />
+            <h2 className="font-black text-base sm:text-lg font-sans whitespace-nowrap">
               {lang === 'kz' ? 'Себет' : 'Корзина'}
             </h2>
-            <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/50 text-amber-300 font-extrabold whitespace-nowrap shrink-0">
-              {items.reduce((s, i) => s + i.quantity, 0)} {lang === 'kz' ? 'дана' : 'шт.'}
+            <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-white/20 text-white font-black whitespace-nowrap shrink-0">
+              {totalQty} {lang === 'kz' ? 'дана' : 'шт.'}
             </span>
           </div>
 
@@ -129,49 +137,49 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             type="button"
             id="cart-close-btn"
             onClick={onClose}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-stone-100 hover:text-white bg-[#0B241B] hover:bg-rose-700 border border-amber-500/25 font-extrabold text-[12px] sm:text-sm transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-white bg-white/15 hover:bg-white/25 font-bold text-xs sm:text-sm transition-colors cursor-pointer shrink-0"
             title={lang === 'kz' ? 'Жабу' : 'Закрыть корзину'}
           >
-            <X className="w-4 h-4 text-amber-300 shrink-0" />
+            <X className="w-4 h-4 text-white shrink-0" />
             <span>{lang === 'kz' ? 'Жабу' : 'Закрыть'}</span>
           </button>
         </div>
 
         {/* Content */}
         {items.length === 0 ? (
-          <div id="cart-empty-state" className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-full bg-[#092018] border border-amber-500/25 flex items-center justify-center text-amber-300 mb-4 shrink-0">
+          <div id="cart-empty-state" className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col items-center justify-center text-center bg-[#f8fafc]">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-[#0567BA] mb-4 shrink-0 shadow-xs">
               <ShoppingBag className="w-8 h-8" />
             </div>
-            <h3 className="text-lg sm:text-xl font-serif font-extrabold text-white">
+            <h3 className="text-lg sm:text-xl font-black text-slate-900">
               {lang === 'kz' ? 'Себет әзірге бос' : 'Ваша корзина пуста'}
             </h3>
-            <p className="text-xs sm:text-sm text-emerald-200/75 max-w-xs mt-1.5 mb-6 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-500 max-w-xs mt-1.5 mb-6 leading-relaxed">
               {lang === 'kz'
                 ? 'Каталогтан өнімдерді таңдап, себетке қосыңыз'
-                : 'Выберите полезные товары из каталога и добавьте их в корзину'}
+                : 'Выберите полезные товары из каталога Flip.kz и добавьте их в корзину'}
             </p>
             <button
               id="cart-empty-continue-btn"
               onClick={onClose}
-              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 text-xs sm:text-sm font-extrabold hover:from-amber-300 hover:to-amber-400 transition-colors shadow-md cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-[#ffbd00] hover:bg-[#febd01] text-slate-950 text-xs sm:text-sm font-black transition-colors shadow-xs cursor-pointer uppercase tracking-wider"
             >
               {lang === 'kz' ? 'Каталогқа оралу' : 'Перейти к покупкам'}
             </button>
 
             {recentlyViewed.length > 0 && onAddToCart && (
-              <div className="w-full text-left mt-8 pt-6 border-t border-amber-500/20 space-y-2.5">
-                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-amber-300">
-                  <Clock className="w-4 h-4 shrink-0" />
+              <div className="w-full text-left mt-8 pt-6 border-t border-slate-200 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-700">
+                  <Clock className="w-4 h-4 text-[#0567BA] shrink-0" />
                   <span>{lang === 'kz' ? 'Сіз жақында қарадыңыз:' : 'Вы недавно смотрели:'}</span>
                 </div>
                 <div className="space-y-2">
-                  {recentlyViewed.slice(0, 4).map((rv) => {
+                  {recentlyViewed.slice(0, 3).map((rv) => {
                     const rvTitle = lang === 'kz' && rv.titleKz?.trim() ? rv.titleKz : rv.titleRu;
                     return (
                       <div
                         key={rv.id}
-                        className="p-2.5 rounded-2xl bg-[#092018] border border-amber-500/25 flex items-center justify-between gap-2.5"
+                        className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-2.5 shadow-2xs hover:border-[#0567BA]/50 transition-colors"
                       >
                         <div
                           onClick={() => {
@@ -186,11 +194,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             src={rv.images?.[0]}
                             alt={rvTitle}
                             referrerPolicy="no-referrer"
-                            className="w-11 h-14 rounded-xl object-cover border border-amber-500/25 bg-stone-900 shrink-0"
+                            className="w-12 h-14 rounded-lg object-contain border border-slate-200 bg-white shrink-0 p-0.5"
                           />
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-white line-clamp-2">{rvTitle}</p>
-                            <p className="text-xs font-extrabold text-amber-300 font-mono tabular-nums mt-0.5">
+                            <p className="text-xs font-bold text-slate-900 line-clamp-1 hover:text-[#0567BA]">{rvTitle}</p>
+                            <p className="text-xs font-black text-[#0567BA] font-sans mt-0.5">
                               {formatPrice(rv.price)}
                             </p>
                           </div>
@@ -198,7 +206,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           onClick={() => onAddToCart(rv)}
-                          className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-extrabold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-[#ffbd00] hover:bg-[#febd01] text-slate-950 text-xs font-bold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           <span>{lang === 'kz' ? 'Қосу' : 'В корзину'}</span>
@@ -211,17 +219,17 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             )}
           </div>
         ) : (
-          <div id="cart-scroll-body" className="flex-1 overflow-y-auto overscroll-contain">
+          <div id="cart-scroll-body" className="flex-1 overflow-y-auto overscroll-contain bg-[#f8fafc]">
             {/* Top Bar inside Cart: Items Count & Clear All Cart Button */}
-            <div className="px-4 pt-3.5 pb-2 flex items-center justify-between gap-2 border-b border-amber-500/15 bg-[#071C15]">
-              <span className="text-xs sm:text-sm font-bold text-amber-300">
+            <div className="px-4 py-2.5 flex items-center justify-between gap-2 border-b border-slate-200 bg-white">
+              <span className="text-xs sm:text-sm font-bold text-slate-700">
                 {lang === 'kz' ? 'Таңдалған тауарлар:' : 'Ваши товары в корзине:'}
               </span>
               <button
                 type="button"
                 id="clear-cart-btn"
                 onClick={onClearCart}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-700 text-rose-200 hover:text-white border border-rose-500/40 text-xs font-extrabold transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5 shrink-0" />
                 <span>{lang === 'kz' ? 'Себетті тазалау' : 'Очистить корзину'}</span>
@@ -229,33 +237,36 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             </div>
 
             {/* Complex Discount Progress / Active Banner */}
-            <div className="mx-4 mt-3.5 p-3 rounded-2xl bg-[#0A251C] border border-amber-500/30">
+            <div className="mx-4 mt-3 p-3 rounded-xl bg-white border border-slate-200 shadow-2xs">
               {hasBundleDiscount ? (
                 <div className="flex items-center justify-between gap-2 text-xs sm:text-sm">
-                  <span className="font-bold text-emerald-300">
-                    {lang === 'kz'
-                      ? '✨ Кешенді жеңілдік -10% іске қосылды!'
-                      : '✨ Скидка -10% за комплексный набор активирована!'}
+                  <span className="font-bold text-emerald-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      {lang === 'kz'
+                        ? 'Кешенді жеңілдік -10% іске қосылды!'
+                        : 'Скидка -10% за комплексный набор активна!'}
+                    </span>
                   </span>
-                  <span className="font-mono tabular-nums font-extrabold text-amber-300 shrink-0">
+                  <span className="font-sans font-black text-emerald-700 shrink-0">
                     -{formatPrice(discountAmount)}
                   </span>
                 </div>
               ) : (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-stone-200 font-medium">
+                    <span className="text-slate-600 font-medium">
                       {lang === 'kz'
                         ? `Тағы ${3 - totalQty} тауар қосып, жиынтыққа -10% жеңілдік алыңыз`
                         : `Добавьте ещё ${3 - totalQty} ${3 - totalQty === 1 ? 'товар' : 'товара'} для скидки -10% на комплекс`}
                     </span>
-                    <span className="font-mono tabular-nums font-bold text-amber-300 shrink-0">
+                    <span className="font-bold text-[#0567BA] shrink-0 font-sans">
                       {totalQty}/3
                     </span>
                   </div>
-                  <div className="w-full h-1.5 rounded-full bg-[#05140F] overflow-hidden">
+                  <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
                     <div
-                      className="h-full bg-amber-400 transition-all duration-300"
+                      className="h-full bg-[#0567BA] transition-all duration-300 rounded-full"
                       style={{ width: `${Math.min(100, (totalQty / 3) * 100)}%` }}
                     />
                   </div>
@@ -263,74 +274,73 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               )}
             </div>
 
-            {/* List of items with clear quantity & labeled Delete button */}
-            <div id="cart-items-list" className="p-4 sm:p-5 divide-y divide-amber-500/15 space-y-4">
+            {/* List of items */}
+            <div id="cart-items-list" className="p-4 space-y-3">
               {items.map((item) => {
                 const title = lang === 'kz' && item.product.titleKz?.trim() ? item.product.titleKz : item.product.titleRu;
                 return (
                   <div
                     key={item.product.id}
-                    className="pt-4 first:pt-0 rounded-2xl bg-[#081E16] p-3.5 border border-amber-500/20 shadow-sm"
+                    className="rounded-2xl bg-white p-3.5 border border-slate-200 shadow-xs"
                   >
                     <div className="flex items-start gap-3">
                       <img
                         src={item.product.images[0]}
-                        alt={`${title} — MUSLIM SHOP Атырау, Бутик №24`}
-                        className="w-16 h-20 rounded-xl object-cover border border-amber-500/25 shrink-0 bg-stone-900"
+                        alt={title}
+                        className="w-16 h-20 rounded-xl object-contain border border-slate-200 shrink-0 bg-white p-1"
                       />
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
-                          <h4 className="text-sm sm:text-base font-bold text-white leading-snug break-words">
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug line-clamp-2">
                             {title}
                           </h4>
                           <button
                             type="button"
                             onClick={() => onRemoveItem(item.product.id)}
-                            className="p-2 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 transition-colors cursor-pointer shrink-0 shadow-2xs"
-                            title={lang === 'kz' ? 'Тауарды себеттен өшіру' : 'Удалить товар из корзины'}
-                            aria-label={lang === 'kz' ? 'Тауарды себеттен өшіру' : 'Удалить товар из корзины'}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+                            title={lang === 'kz' ? 'Тауарды өшіру' : 'Удалить'}
                           >
-                            <Trash2 className="w-4 h-4 text-rose-300" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
 
                         {!item.product.inStock && (
-                          <span className="inline-block mt-1 text-[11px] text-rose-300 font-bold bg-rose-950/80 px-2 py-0.5 rounded-lg border border-rose-500/30">
+                          <span className="inline-block mt-1 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
                             {lang === 'kz' ? 'Жақында' : 'Скоро в наличии'}
                           </span>
                         )}
 
-                        <p className="text-xs sm:text-sm text-emerald-200/90 mt-1.5">
+                        <p className="text-xs text-slate-600 mt-1 font-sans">
                           {formatPrice(item.product.price)} × {item.quantity} ={' '}
-                          <strong className="text-amber-300 font-extrabold font-mono text-sm sm:text-base">
+                          <strong className="text-slate-900 font-black text-sm">
                             {formatPrice(item.product.price * item.quantity)}
                           </strong>
                         </p>
                       </div>
                     </div>
 
-                    {/* Quantity Counter & Prominent Labeled Delete Button */}
-                    <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-amber-500/15">
-                      <div className="flex items-center gap-2">
+                    {/* Quantity Counter & Delete Button */}
+                    <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-slate-100">
+                      <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
                         <button
                           type="button"
                           onClick={() => onUpdateQuantity(item.product.id, -1)}
-                          className="w-9 h-9 rounded-xl bg-[#0B241B] hover:bg-[#123629] text-amber-300 border border-amber-500/30 flex items-center justify-center transition-colors cursor-pointer"
-                          title={lang === 'kz' ? 'Азайту' : 'Уменьшить количество'}
+                          className="w-8 h-8 rounded-lg bg-white hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer shadow-2xs font-bold"
+                          title={lang === 'kz' ? 'Азайту' : 'Уменьшить'}
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="w-3.5 h-3.5" />
                         </button>
-                        <span className="text-sm sm:text-base font-extrabold text-white px-2 font-mono">
+                        <span className="text-xs sm:text-sm font-black text-slate-900 px-2.5 font-sans">
                           {item.quantity} {lang === 'kz' ? 'дана' : 'шт.'}
                         </span>
                         <button
                           type="button"
                           onClick={() => onUpdateQuantity(item.product.id, 1)}
-                          className="w-9 h-9 rounded-xl bg-[#0B241B] hover:bg-[#123629] text-amber-300 border border-amber-500/30 flex items-center justify-center transition-colors cursor-pointer"
-                          title={lang === 'kz' ? 'Көбейту' : 'Увеличить количество'}
+                          className="w-8 h-8 rounded-lg bg-white hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer shadow-2xs font-bold"
+                          title={lang === 'kz' ? 'Көбейту' : 'Увеличить'}
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="w-3.5 h-3.5" />
                         </button>
                       </div>
 
@@ -338,10 +348,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         type="button"
                         id={`remove-cart-item-${item.product.id}`}
                         onClick={() => onRemoveItem(item.product.id)}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-500/40 font-extrabold text-xs sm:text-sm transition-colors cursor-pointer shadow-xs shrink-0"
-                        title={lang === 'kz' ? 'Тауарды өшіру' : 'Удалить товар из корзины'}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
+                        title={lang === 'kz' ? 'Тауарды өшіру' : 'Удалить'}
                       >
-                        <Trash2 className="w-4 h-4 text-rose-300 shrink-0" />
+                        <Trash2 className="w-3.5 h-3.5 shrink-0" />
                         <span>{lang === 'kz' ? 'Өшіру' : 'Удалить'}</span>
                       </button>
                     </div>
@@ -349,29 +359,25 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 );
               })}
 
-              {/* Frequently Bought Together inside Cart Drawer */}
+              {/* Frequently Bought Together */}
               {cartRecommendations.length > 0 && onAddToCart && (
-                <div
-                  id="cart-recommendations-box"
-                  className="pt-4 mt-4 border-t border-amber-500/20"
-                >
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                    <h4 className="text-xs sm:text-sm font-bold text-amber-300">
+                <div id="cart-recommendations-box" className="pt-3 mt-4 border-t border-slate-200">
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <Sparkles className="w-4 h-4 text-[#ffbd00] shrink-0" />
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-800">
                       {lang === 'kz'
                         ? 'Осы тауармен бірге жиі алады:'
                         : 'С этим товаром часто берут:'}
                     </h4>
                   </div>
 
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                     {cartRecommendations.map((rec) => {
-                      const recTitle =
-                        lang === 'kz' && rec.titleKz?.trim() ? rec.titleKz : rec.titleRu;
+                      const recTitle = lang === 'kz' && rec.titleKz?.trim() ? rec.titleKz : rec.titleRu;
                       return (
                         <div
                           key={rec.id}
-                          className="p-3 rounded-2xl bg-[#092018] border border-amber-500/25 flex items-center justify-between gap-2.5 hover:bg-[#0E2E23] transition-colors"
+                          className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-2.5 shadow-2xs hover:border-[#0567BA]/40 transition-colors"
                         >
                           <div
                             onClick={() => {
@@ -386,13 +392,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                               src={rec.images[0]}
                               alt={recTitle}
                               referrerPolicy="no-referrer"
-                              className="w-11 h-14 rounded-xl object-cover border border-amber-500/25 bg-stone-900 shrink-0"
+                              className="w-11 h-13 rounded-lg object-contain border border-slate-200 bg-white shrink-0 p-0.5"
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs sm:text-sm font-bold text-white line-clamp-2">
+                              <p className="text-xs font-bold text-slate-900 line-clamp-1 hover:text-[#0567BA]">
                                 {recTitle}
                               </p>
-                              <p className="text-xs sm:text-sm font-extrabold text-amber-300 font-mono tabular-nums mt-0.5">
+                              <p className="text-xs font-black text-[#0567BA] font-sans mt-0.5">
                                 {formatPrice(rec.price)}
                               </p>
                             </div>
@@ -401,7 +407,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           <button
                             type="button"
                             onClick={() => onAddToCart(rec)}
-                            className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-extrabold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg bg-[#ffbd00] hover:bg-[#febd01] text-slate-950 text-xs font-bold flex items-center gap-1 shrink-0 transition-colors cursor-pointer shadow-2xs"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>{lang === 'kz' ? 'Қосу' : 'В корзину'}</span>
@@ -414,21 +420,21 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               )}
             </div>
 
-            {/* Checkout Form & Order Summary (inside scroll container so items are never squished) */}
-            <form onSubmit={handleWhatsAppCheckout} className="p-4 sm:p-5 bg-[#030F0B] border-t border-amber-500/25 space-y-3.5">
+            {/* Checkout Form & Order Summary */}
+            <form onSubmit={handleWhatsAppCheckout} className="p-4 sm:p-5 bg-white border-t border-slate-200 space-y-3.5 shadow-inner">
               {/* Delivery method selector */}
               <div>
-                <label className="block text-xs sm:text-sm font-bold text-amber-300 mb-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
                   {lang === 'kz' ? 'Жеткізу тәсілі:' : 'Способ получения:'}
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 text-xs sm:text-sm">
+                <div className="grid grid-cols-3 gap-1.5 text-xs">
                   <button
                     type="button"
                     onClick={() => setDeliveryMethod('delivery')}
-                    className={`p-2.5 rounded-xl border text-center font-bold transition-colors cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl border text-center font-bold transition-all cursor-pointer ${
                       deliveryMethod === 'delivery'
-                        ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 border-amber-300 shadow-sm'
-                        : 'bg-[#092018] text-stone-200 border-amber-500/25 hover:bg-[#0F3124]'
+                        ? 'bg-[#0567BA] text-white border-[#0567BA] shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     {lang === 'kz' ? 'Атырау курьер' : 'Курьер Атырау'}
@@ -437,10 +443,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <button
                     type="button"
                     onClick={() => setDeliveryMethod('pickup')}
-                    className={`p-2.5 rounded-xl border text-center font-bold transition-colors cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl border text-center font-bold transition-all cursor-pointer ${
                       deliveryMethod === 'pickup'
-                        ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 border-amber-300 shadow-sm'
-                        : 'bg-[#092018] text-stone-200 border-amber-500/25 hover:bg-[#0F3124]'
+                        ? 'bg-[#0567BA] text-white border-[#0567BA] shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     {lang === 'kz' ? '№24 Бутик' : 'Самовывоз №24'}
@@ -449,10 +455,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <button
                     type="button"
                     onClick={() => setDeliveryMethod('post')}
-                    className={`p-2.5 rounded-xl border text-center font-bold transition-colors cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl border text-center font-bold transition-all cursor-pointer ${
                       deliveryMethod === 'post'
-                        ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 border-amber-300 shadow-sm'
-                        : 'bg-[#092018] text-stone-200 border-amber-500/25 hover:bg-[#0F3124]'
+                        ? 'bg-[#0567BA] text-white border-[#0567BA] shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     {lang === 'kz' ? 'Қазпошта/СДЭК' : 'По Казахстану'}
@@ -468,7 +474,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     placeholder={lang === 'kz' ? 'Атыңыз' : 'Ваше имя'}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-amber-500/30 bg-[#092018] text-white placeholder:text-emerald-200/50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0567BA]/30 focus:border-[#0567BA]"
                     required
                   />
                 </div>
@@ -478,7 +484,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     placeholder={lang === 'kz' ? '+7 (___) ___-__-__' : '+7 (___) ___-__-__'}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-amber-500/30 bg-[#092018] text-white placeholder:text-emerald-200/50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0567BA]/30 focus:border-[#0567BA]"
                     required
                   />
                 </div>
@@ -493,75 +499,74 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     placeholder={
                       lang === 'kz'
                         ? 'Мекенжай: көше, үй, пәтер'
-                        : 'Адрес доставки в Атырау / город'
+                        : 'Адрес доставки в г. Атырау / город'
                     }
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-amber-500/30 bg-[#092018] text-white placeholder:text-emerald-200/50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0567BA]/30 focus:border-[#0567BA]"
                   />
                 </div>
               )}
 
               {/* Total calculation */}
-              <div className="pt-2.5 border-t border-amber-500/20 space-y-1.5">
+              <div className="pt-2.5 border-t border-slate-200 space-y-1">
                 {hasBundleDiscount && (
-                  <div className="flex items-center justify-between text-xs text-emerald-300">
+                  <div className="flex items-center justify-between text-xs text-emerald-700 font-bold">
                     <span>
                       {lang === 'kz'
                         ? 'Кешенді жеңілдік (-10%):'
-                        : 'Скидка за комплекс (-10% от 3 шт.):'}
+                        : 'Скидка за комплекс (-10%):'}
                     </span>
-                    <span className="font-mono tabular-nums font-bold">
+                    <span className="font-sans">
                       -{formatPrice(discountAmount)}
                     </span>
                   </div>
                 )}
                 <div className="flex items-baseline justify-between">
-                  <span className="text-xs sm:text-sm font-semibold text-emerald-200/85">
+                  <span className="text-xs sm:text-sm font-bold text-slate-700">
                     {lang === 'kz' ? 'Барлық сома:' : 'Итого к оплате:'}
                   </span>
                   <div className="flex items-baseline gap-2">
                     {hasBundleDiscount && (
-                      <span className="text-xs sm:text-sm font-mono tabular-nums text-stone-400 line-through">
+                      <span className="text-xs sm:text-sm font-sans text-slate-400 line-through">
                         {formatPrice(total)}
                       </span>
                     )}
-                    <span className="text-xl sm:text-2xl font-black text-amber-300 font-serif">
+                    <span className="text-xl sm:text-2xl font-black text-[#0567BA] font-sans">
                       {formatPrice(finalTotal)}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Kaspi note */}
-              <p className="text-xs text-emerald-200/75 text-center">
-                💳 {lang === 'kz' ? 'Kaspi Gold арқылы қауіпсіз төлем' : 'Оплата переводом на Kaspi Gold / Kaspi QR при получении'}
+              <p className="text-[11px] text-slate-500 text-center">
+                💳 {lang === 'kz' ? 'Kaspi Gold / Kaspi QR арқылы төлем' : 'Оплата Kaspi Gold / Kaspi QR при получении'}
               </p>
 
               {/* WhatsApp Checkout Button */}
               <button
                 id="cart-submit-whatsapp-btn"
                 type="submit"
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-stone-950 font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+                className="w-full py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] active:bg-[#1caa52] text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer uppercase tracking-wider select-none"
               >
-                <MessageCircle className="w-5 h-5 text-stone-950" />
+                <MessageCircle className="w-5 h-5 text-white" />
                 <span>{lang === 'kz' ? 'WhatsApp арқылы рәсімдеу' : 'Оформить через WhatsApp'}</span>
               </button>
 
-              {/* Bottom Back / Close Button */}
-              <div className="grid grid-cols-2 gap-2.5 pt-1">
+              {/* Bottom Back / Close Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="py-2.5 px-3 rounded-xl bg-[#0B241B] hover:bg-[#113628] text-amber-300 border border-amber-500/25 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <ArrowLeft className="w-4 h-4 text-amber-400 shrink-0" />
+                  <ArrowLeft className="w-4 h-4 text-slate-500 shrink-0" />
                   <span>{lang === 'kz' ? 'Саудаға оралу' : 'Назад к покупкам'}</span>
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="py-2.5 px-3 rounded-xl bg-[#0B241B] hover:bg-rose-800/80 text-stone-200 hover:text-white border border-amber-500/25 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="py-2 px-3 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <X className="w-4 h-4 text-amber-300 shrink-0" />
+                  <X className="w-4 h-4 text-rose-500 shrink-0" />
                   <span>{lang === 'kz' ? 'Себетті жабу' : 'Закрыть корзину'}</span>
                 </button>
               </div>

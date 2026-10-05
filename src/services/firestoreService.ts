@@ -41,6 +41,114 @@ const remoteCloudUpsertedIds = new Set<string>();
 let initialCloudPullCompleted = false;
 const deltaHydrationListeners = new Set<() => void>();
 
+export type SyncState = 'synced' | 'syncing' | 'offline_quota' | 'error';
+
+export interface SyncStatusInfo {
+  state: SyncState;
+  lastSyncedAt: string;
+  isQuotaExceeded: boolean;
+  quotaResetInfo: string;
+  countdown: string;
+  totalProducts: number;
+  messageRu: string;
+  messageKz: string;
+}
+
+export function getTimeUntilFirestoreQuotaReset(): {
+  hours: number;
+  minutes: number;
+  resetTimeString: string;
+  formattedCountdown: string;
+} {
+  const now = new Date();
+  // Firestore quota resets daily at midnight PDT (00:00 PDT = 07:00 UTC).
+  // In Atyrau / Kazakhstan unified timezone (UTC+5), 07:00 UTC is exactly 12:00 PM (полдень).
+  const targetUtcHours = 7;
+  const currentUtcHours = now.getUTCHours();
+  const currentUtcMinutes = now.getUTCMinutes();
+  const currentUtcSeconds = now.getUTCSeconds();
+
+  const currentTotalSeconds = currentUtcHours * 3600 + currentUtcMinutes * 60 + currentUtcSeconds;
+  const targetTotalSeconds = targetUtcHours * 3600;
+
+  let diffSeconds = targetTotalSeconds - currentTotalSeconds;
+  if (diffSeconds <= 0) {
+    diffSeconds += 24 * 3600;
+  }
+
+  const hours = Math.floor(diffSeconds / 3600);
+  const minutes = Math.floor((diffSeconds % 3600) / 60);
+
+  return {
+    hours,
+    minutes,
+    resetTimeString: '12:00 (UTC+5 / Атырау)',
+    formattedCountdown: `${hours} ч. ${minutes} мин.`,
+  };
+}
+
+let currentSyncState: SyncState = 'synced';
+let lastSuccessfulSyncTime = new Date().toISOString();
+let isFirestoreQuotaActive = false;
+const syncStatusListeners = new Set<(status: SyncStatusInfo) => void>();
+
+export function getSyncStatus(): SyncStatusInfo {
+  const reset = getTimeUntilFirestoreQuotaReset();
+  let total = 0;
+  try {
+    total = getCachedProductsFromLocalStorage().length;
+  } catch {}
+
+  let messageRu = 'Все изменения синхронизированы';
+  let messageKz = 'Барлық өзгерістер синхрондалды';
+
+  if (currentSyncState === 'syncing') {
+    messageRu = 'Синхронизация данных...';
+    messageKz = 'Деректерді синхрондау...';
+  } else if (isFirestoreQuotaActive || currentSyncState === 'offline_quota') {
+    messageRu = `Лимит записи Firestore активен. Сброс через ${reset.formattedCountdown} (в 12:00)`;
+    messageKz = `Firestore жазу лимиті белсенді. Қалпына келу: ${reset.hours} сағ. ${reset.minutes} мин. (12:00-де)`;
+  }
+
+  return {
+    state: currentSyncState,
+    lastSyncedAt: lastSuccessfulSyncTime,
+    isQuotaExceeded: isFirestoreQuotaActive,
+    quotaResetInfo: `Суточный лимит Google Cloud Firestore (Spark plan: 20 000 записей/день). Сброс суточных квот происходит ежедневно в 12:00 дня по времени Атырау / Казахстана (UTC+5 / 00:00 PDT). Сейчас действует автономно-серверный режим: все добавленные и измененные товары надежно сохранены на сервере и в кэше браузера!`,
+    countdown: reset.formattedCountdown,
+    totalProducts: total,
+    messageRu,
+    messageKz,
+  };
+}
+
+export function updateSyncStatus(patch: {
+  state?: SyncState;
+  isQuotaExceeded?: boolean;
+  lastSyncedAt?: string;
+}): void {
+  if (patch.state !== undefined) currentSyncState = patch.state;
+  if (patch.isQuotaExceeded !== undefined) isFirestoreQuotaActive = patch.isQuotaExceeded;
+  if (patch.lastSyncedAt !== undefined) lastSuccessfulSyncTime = patch.lastSyncedAt;
+
+  const current = getSyncStatus();
+  syncStatusListeners.forEach((fn) => {
+    try {
+      fn(current);
+    } catch {}
+  });
+}
+
+export function subscribeToSyncStatus(listener: (status: SyncStatusInfo) => void): () => void {
+  syncStatusListeners.add(listener);
+  try {
+    listener(getSyncStatus());
+  } catch {}
+  return () => {
+    syncStatusListeners.delete(listener);
+  };
+}
+
 function notifyDeltaListeners(): void {
   deltaHydrationListeners.forEach((fn) => {
     try {
@@ -753,19 +861,19 @@ ensureLocalDeltaHydrated().catch(() => {});
  */
 export function recordLocalProductUpsert(product: Product): void {
   const delta = getLocalCatalogDelta();
-  const existing = delta.upsertedProducts[product.id];
-  const baseProd = lastResolvedCatalog?.products?.find((bp) => bp.id === product.id);
   const rawNormalized = normalizeProduct(product.id, product);
-  const normalized = mergeProductPreservingFields(existing || baseProd, rawNormalized);
-  if (hasRealProductImage(normalized)) {
-    inMemoryProductImages.set(normalized.id, normalized.images);
-  } else if (inMemoryProductImages.has(normalized.id)) {
-    normalized.images = inMemoryProductImages.get(normalized.id)!;
+
+  if (hasRealProductImage(rawNormalized)) {
+    inMemoryProductImages.set(rawNormalized.id, rawNormalized.images);
+  } else if (inMemoryProductImages.has(rawNormalized.id)) {
+    rawNormalized.images = inMemoryProductImages.get(rawNormalized.id)!;
   }
-  delta.upsertedProducts[normalized.id] = normalized;
-  delta.deletedProductIds = delta.deletedProductIds.filter((id) => id !== normalized.id);
+
+  delta.upsertedProducts[rawNormalized.id] = rawNormalized;
+  delta.deletedProductIds = delta.deletedProductIds.filter((id) => id !== rawNormalized.id);
   delta.updatedAt = new Date().toISOString();
   saveLocalCatalogDelta(delta);
+  bootRecoveredProductsMap.set(rawNormalized.id, rawNormalized);
 }
 
 /**
@@ -779,6 +887,8 @@ export function recordLocalProductDelete(productId: string): void {
   }
   delta.updatedAt = new Date().toISOString();
   saveLocalCatalogDelta(delta);
+  bootRecoveredProductsMap.delete(productId);
+  inMemoryProductImages.delete(productId);
 }
 
 /**
@@ -1453,10 +1563,8 @@ export async function pushDeltaToFirestore(
   currentCategories?: Category[],
   currentSettings?: Partial<StoreConfig>
 ): Promise<void> {
-  // 1. Ensure IndexedDB delta & images are hydrated AND pull latest remote delta first (Pull-before-Push)
-  // so no browser can ever overwrite Cloud Relay with an incomplete subset!
+  // 1. Ensure IndexedDB delta & images are hydrated before pushing
   await ensureLocalDeltaHydrated().catch(() => {});
-  await pullDeltaFromCloudRelay().catch(() => {});
 
   // 2. If Admin or auto-heal passes live products list, ensure EVERY product not in STATIC_SNAPSHOT_PRODUCT_IDS
   // or modified compared to raw static snapshot is recorded in local delta
@@ -1727,14 +1835,16 @@ function isStaticGitHubPagesHost(): boolean {
  * and updates IndexedDB + localStorage caches.
  */
 export async function fetchNetworkCatalog(): Promise<SharedCatalogPayload | null> {
-  // Hydrate local delta from IndexedDB first, then pull cross-browser Firestore REST delta AND Cloud Relay delta
+  // Hydrate local delta from IndexedDB first (0-15ms)
   await ensureLocalDeltaHydrated().catch(() => null);
-  await Promise.all([
-    pullDeltaFromFirestoreRest().catch(() => null),
-    pullDeltaFromCloudRelay().catch(() => null),
-  ]);
 
-  // 1. If not on static GitHub Pages, try Server API (/api/catalog)
+  // Background non-blocking delta sync with timeout
+  Promise.all([
+    withFirestoreTimeout(pullDeltaFromFirestoreRest(), 1500).catch(() => null),
+    withFirestoreTimeout(pullDeltaFromCloudRelay(), 1500).catch(() => null),
+  ]).catch(() => null);
+
+  // 1. If not on static GitHub Pages, try Server API (/api/catalog) immediately (authoritative & fast)
   if (!isStaticGitHubPagesHost()) {
     try {
       const res = await fetch('/api/catalog', {
@@ -1967,25 +2077,13 @@ export function subscribeToProducts(
   };
   deltaHydrationListeners.add(onDeltaHydrated);
 
-  // 2. Hydrate from IndexedDB / Snapshot & revalidate from network in background for cross-browser sync.
-  // IMPORTANT: Never push to Cloud Relay before pulling from Cloud Relay (prevents stale browsers from overwriting new products!).
+  // 2. Hydrate from IndexedDB / Snapshot & Server Catalog fast path
   fetchUniversalCatalog()
     .then(async (catalog) => {
       if (isUnsubscribed) return;
       if (catalog && catalog.products.length > 0) {
         currentBaseProducts = catalog.products;
         emitMerged();
-      }
-      // Background network + Cloud Relay revalidation ensures another browser (e.g. Yandex Browser / Opera / Safari) always receives new items added in Chrome
-      const freshNet = await fetchNetworkCatalog();
-      if (!isUnsubscribed && freshNet && freshNet.products.length > 0) {
-        currentBaseProducts = freshNet.products;
-        emitMerged();
-        // After pulling from network & Cloud Relay, if this browser (e.g. Chrome) has local products that aren't in Cloud Relay yet, auto-push them!
-        const mergedNow = applyProductsDelta(currentBaseProducts);
-        autoSyncLocalProductsIfNeeded(mergedNow, freshNet.categories, freshNet.settings).catch(
-          () => {}
-        );
       }
     })
     .catch((err) => {
@@ -1994,18 +2092,24 @@ export function subscribeToProducts(
       }
     });
 
-  // 3. Simultaneously listen to Firestore (`settings/catalog_delta`) AND poll Cloud Relay pointers (`ms_d8_ptr` & `ms_d7_ptr`) for real-time cross-browser updates
+  // 3. Listen to Firestore (`settings/catalog_delta`) and periodic light check
   const checkCloudRelayLiveUpdates = async () => {
     if (isUnsubscribed) return;
     try {
       const [ptr8Res, ptr7Res] = await Promise.all([
-        fetch(
-          `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr`,
-          { method: 'GET', cache: 'no-store' }
+        withFirestoreTimeout(
+          fetch(
+            `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${CLOUD_RELAY_CHUNK_PREFIX}ptr`,
+            { method: 'GET', cache: 'no-store' }
+          ),
+          1500
         ).catch(() => null),
-        fetch(
-          `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr`,
-          { method: 'GET', cache: 'no-store' }
+        withFirestoreTimeout(
+          fetch(
+            `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${CLOUD_RELAY_APP_KEY}/${LEGACY_CLOUD_RELAY_PREFIX}ptr`,
+            { method: 'GET', cache: 'no-store' }
+          ),
+          1500
         ).catch(() => null),
       ]);
       const ptr8 = ptr8Res && ptr8Res.ok ? (await ptr8Res.text()).replace(/^"|"$/g, '').trim() : '';
@@ -2015,14 +2119,14 @@ export function subscribeToProducts(
       const changed7 = ptr7 && ptr7.length >= 5 && ptr7 !== lastSeenLegacyRelayPtr;
 
       if (changed8 || changed7) {
-        await pullDeltaFromCloudRelay();
+        await withFirestoreTimeout(pullDeltaFromCloudRelay(), 2000);
         emitMerged();
       }
     } catch {}
   };
 
   const pollInterval =
-    typeof window !== 'undefined' ? window.setInterval(checkCloudRelayLiveUpdates, 6000) : null;
+    typeof window !== 'undefined' ? window.setInterval(checkCloudRelayLiveUpdates, 60000) : null;
   const onFocusOrVisible = () => {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
       checkCloudRelayLiveUpdates();
@@ -2282,6 +2386,7 @@ export function subscribeToSettings(
  * Create or update product in Local Delta + IndexedDB + Firestore + Server Cache
  */
 export async function saveProductToFirestore(product: Product): Promise<void> {
+  updateSyncStatus({ state: 'syncing' });
   // 1. Synchronously persist in local delta & IndexedDB first so page reload NEVER loses the product!
   recordLocalProductUpsert(product);
 
@@ -2292,27 +2397,40 @@ export async function saveProductToFirestore(product: Product): Promise<void> {
     }
   }
 
-  // 2. Persist to Firestore `products/{id}` AND `settings/catalog_delta` in parallel (with timeout so UI never hangs)
-  await Promise.all([
-    (async () => {
-      try {
-        const docRef = doc(db, PRODUCTS_COLLECTION, product.id);
-        await withFirestoreTimeout(setDoc(docRef, cleanData, { merge: true }), 2000);
-      } catch (err) {
-        console.warn('Firestore saveProduct notice:', err);
+  // 2. Persist to Server Cache (/api/catalog/sync) and Firestore in parallel
+  const serverPromise = syncServerCatalog({ action: 'saveProduct', product: cleanData }).catch((err) => {
+    console.warn('Server catalog sync notice:', err);
+  });
+
+  const firestoreDocPromise = (async () => {
+    try {
+      const docRef = doc(db, PRODUCTS_COLLECTION, product.id);
+      await withFirestoreTimeout(setDoc(docRef, cleanData, { merge: true }), 2500);
+      updateSyncStatus({ isQuotaExceeded: false });
+    } catch (err: any) {
+      if (isQuotaOrNetworkError(err)) {
+        updateSyncStatus({ isQuotaExceeded: true, state: 'offline_quota' });
       }
-    })(),
-    pushDeltaToFirestore(),
-    syncServerCatalog({ action: 'saveProduct', product: cleanData }),
-  ]);
+      console.warn('Firestore saveProduct notice:', err);
+    }
+  })();
+
+  const deltaPromise = pushDeltaToFirestore().catch(() => {});
+
+  await Promise.allSettled([serverPromise, firestoreDocPromise, deltaPromise]);
+  updateSyncStatus({
+    state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    lastSyncedAt: new Date().toISOString(),
+  });
 }
 
 /**
  * Bulk save multiple modified products (from Fast Price List / Mass Editor)
- * in a single synchronized operation across Local Delta, IndexedDB, Server Cache, Cloud Relay, and Firestore.
+ * in a single synchronized operation across Local Delta, IndexedDB, Server Cache, and Firestore.
  */
 export async function saveProductsBulkToFirestore(productsList: Product[]): Promise<void> {
   if (!Array.isArray(productsList) || productsList.length === 0) return;
+  updateSyncStatus({ state: 'syncing' });
 
   const cleanProducts: Record<string, any>[] = [];
   for (const product of productsList) {
@@ -2327,26 +2445,37 @@ export async function saveProductsBulkToFirestore(productsList: Product[]): Prom
     cleanProducts.push(cleanData);
   }
 
-  await Promise.all([
-    (async () => {
+  const serverPromise = syncServerCatalog({ action: 'saveProductsBulk', products: cleanProducts }).catch(() => {});
+  const firestorePromise = (async () => {
+    try {
       await Promise.all(
         cleanProducts.map(async (cleanData) => {
-          try {
-            const docRef = doc(db, PRODUCTS_COLLECTION, cleanData.id);
-            await withFirestoreTimeout(setDoc(docRef, cleanData, { merge: true }), 2000);
-          } catch {}
+          const docRef = doc(db, PRODUCTS_COLLECTION, cleanData.id);
+          await withFirestoreTimeout(setDoc(docRef, cleanData, { merge: true }), 2500);
         })
       );
-    })(),
-    pushDeltaToFirestore(),
-    syncServerCatalog({ action: 'saveProductsBulk', products: cleanProducts }),
-  ]);
+      updateSyncStatus({ isQuotaExceeded: false });
+    } catch (err) {
+      if (isQuotaOrNetworkError(err)) {
+        updateSyncStatus({ isQuotaExceeded: true, state: 'offline_quota' });
+      }
+    }
+  })();
+
+  const deltaPromise = pushDeltaToFirestore().catch(() => {});
+
+  await Promise.allSettled([serverPromise, firestorePromise, deltaPromise]);
+  updateSyncStatus({
+    state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    lastSyncedAt: new Date().toISOString(),
+  });
 }
 
 /**
  * Create or update category in Local Delta + IndexedDB + Firestore + Server Cache
  */
 export async function saveCategoryToFirestore(category: Category): Promise<void> {
+  updateSyncStatus({ state: 'syncing' });
   recordLocalCategoryUpsert(category);
 
   const cleanData: Record<string, any> = {};
@@ -2356,78 +2485,133 @@ export async function saveCategoryToFirestore(category: Category): Promise<void>
     }
   }
 
-  await Promise.all([
-    (async () => {
-      try {
-        const docRef = doc(db, CATEGORIES_COLLECTION, category.id);
-        await withFirestoreTimeout(setDoc(docRef, cleanData, { merge: true }), 2000);
-      } catch (err) {
-        console.warn('Firestore saveCategory notice:', err);
+  const serverPromise = syncServerCatalog({ action: 'saveCategory', category: cleanData }).catch(() => {});
+  const firestorePromise = (async () => {
+    try {
+      const docRef = doc(db, CATEGORIES_COLLECTION, category.id);
+      await withFirestoreTimeout(setDoc(docRef, cleanData, { merge: true }), 2500);
+    } catch (err) {
+      if (isQuotaOrNetworkError(err)) {
+        updateSyncStatus({ isQuotaExceeded: true, state: 'offline_quota' });
       }
-    })(),
-    pushDeltaToFirestore(),
-    syncServerCatalog({ action: 'saveCategory', category: cleanData }),
-  ]);
+      console.warn('Firestore saveCategory notice:', err);
+    }
+  })();
+
+  await Promise.allSettled([serverPromise, firestorePromise, pushDeltaToFirestore().catch(() => {})]);
+  updateSyncStatus({
+    state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    lastSyncedAt: new Date().toISOString(),
+  });
 }
 
 /**
  * Delete category from Local Delta + IndexedDB + Firestore + Server Cache
  */
 export async function deleteCategoryFromFirestore(categoryId: string): Promise<void> {
+  updateSyncStatus({ state: 'syncing' });
   recordLocalCategoryDelete(categoryId);
 
-  await Promise.all([
-    (async () => {
-      try {
-        const docRef = doc(db, CATEGORIES_COLLECTION, categoryId);
-        await withFirestoreTimeout(deleteDoc(docRef), 2000);
-      } catch (err) {
-        console.warn('Firestore deleteCategory notice:', err);
+  const serverPromise = syncServerCatalog({ action: 'deleteCategory', categoryId }).catch(() => {});
+  const firestorePromise = (async () => {
+    try {
+      const docRef = doc(db, CATEGORIES_COLLECTION, categoryId);
+      await withFirestoreTimeout(deleteDoc(docRef), 2500);
+    } catch (err) {
+      if (isQuotaOrNetworkError(err)) {
+        updateSyncStatus({ isQuotaExceeded: true, state: 'offline_quota' });
       }
-    })(),
-    pushDeltaToFirestore(),
-    syncServerCatalog({ action: 'deleteCategory', categoryId }),
-  ]);
+      console.warn('Firestore deleteCategory notice:', err);
+    }
+  })();
+
+  await Promise.allSettled([serverPromise, firestorePromise, pushDeltaToFirestore().catch(() => {})]);
+  updateSyncStatus({
+    state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    lastSyncedAt: new Date().toISOString(),
+  });
 }
 
 /**
  * Delete product from Local Delta + IndexedDB + Firestore + Server Cache
  */
 export async function deleteProductFromFirestore(productId: string): Promise<void> {
+  updateSyncStatus({ state: 'syncing' });
   recordLocalProductDelete(productId);
 
-  await Promise.all([
-    (async () => {
-      try {
-        const docRef = doc(db, PRODUCTS_COLLECTION, productId);
-        await withFirestoreTimeout(deleteDoc(docRef), 2000);
-      } catch (err) {
-        console.warn('Firestore deleteProduct notice:', err);
+  const serverPromise = syncServerCatalog({ action: 'deleteProduct', productId }).catch(() => {});
+  const firestorePromise = (async () => {
+    try {
+      const docRef = doc(db, PRODUCTS_COLLECTION, productId);
+      await withFirestoreTimeout(deleteDoc(docRef), 2500);
+      updateSyncStatus({ isQuotaExceeded: false });
+    } catch (err) {
+      if (isQuotaOrNetworkError(err)) {
+        updateSyncStatus({ isQuotaExceeded: true, state: 'offline_quota' });
       }
-    })(),
-    pushDeltaToFirestore(),
-    syncServerCatalog({ action: 'deleteProduct', productId }),
-  ]);
+      console.warn('Firestore deleteProduct notice:', err);
+    }
+  })();
+
+  await Promise.allSettled([serverPromise, firestorePromise, pushDeltaToFirestore().catch(() => {})]);
+  updateSyncStatus({
+    state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    lastSyncedAt: new Date().toISOString(),
+  });
 }
 
 /**
  * Save store settings to Local Delta + Firestore + Server Cache
  */
 export async function saveSettingsToFirestore(config: StoreConfig): Promise<void> {
+  updateSyncStatus({ state: 'syncing' });
   recordLocalSettingsUpdate(config);
 
-  await Promise.all([
-    (async () => {
-      try {
-        const docRef = doc(db, SETTINGS_COLLECTION, 'general');
-        await withFirestoreTimeout(setDoc(docRef, config, { merge: true }), 2000);
-      } catch (err) {
-        console.warn('Firestore saveSettings notice:', err);
+  const serverPromise = syncServerCatalog({ action: 'saveSettings', settings: config }).catch(() => {});
+  const firestorePromise = (async () => {
+    try {
+      const docRef = doc(db, SETTINGS_COLLECTION, 'general');
+      await withFirestoreTimeout(setDoc(docRef, config, { merge: true }), 2500);
+    } catch (err) {
+      if (isQuotaOrNetworkError(err)) {
+        updateSyncStatus({ isQuotaExceeded: true, state: 'offline_quota' });
       }
-    })(),
-    pushDeltaToFirestore(),
-    syncServerCatalog({ action: 'saveSettings', settings: config }),
-  ]);
+      console.warn('Firestore saveSettings notice:', err);
+    }
+  })();
+
+  await Promise.allSettled([serverPromise, firestorePromise, pushDeltaToFirestore().catch(() => {})]);
+  updateSyncStatus({
+    state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    lastSyncedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Manually trigger complete catalog synchronization across Local, Server, and Firestore
+ */
+export async function triggerManualSync(customProducts?: Product[]): Promise<SyncStatusInfo> {
+  updateSyncStatus({ state: 'syncing' });
+  try {
+    const productsToSync = customProducts || getCachedProductsFromLocalStorage();
+    await Promise.allSettled([
+      pushDeltaToFirestore(productsToSync),
+      syncServerCatalog({
+        action: 'syncDelta',
+        delta: getLocalCatalogDelta(),
+        fullProducts: productsToSync.length > 0 ? productsToSync : undefined,
+      }),
+    ]);
+    updateSyncStatus({
+      state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+      lastSyncedAt: new Date().toISOString(),
+    });
+  } catch {
+    updateSyncStatus({
+      state: isFirestoreQuotaActive ? 'offline_quota' : 'synced',
+    });
+  }
+  return getSyncStatus();
 }
 
 /**

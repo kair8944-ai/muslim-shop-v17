@@ -1,12 +1,9 @@
 import React from 'react';
 import {
-  Sparkles,
   MapPin,
   MessageCircle,
   ShieldCheck,
   Truck,
-  Award,
-  CheckCircle2,
   ArrowRight,
 } from 'lucide-react';
 import { Category, Language, StoreConfig } from '../types';
@@ -24,248 +21,91 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   config,
   lang,
   onScrollToCatalog,
-  categories,
-  selectedCategoryId,
-  onSelectCategory,
 }) => {
   const isKz = lang === 'kz';
 
-  // Resolved title & subtitle with fallbacks to the new required copy
-  const titleRu =
-    config.taglineRu && config.taglineRu !== 'Красота. Здоровье. Вера.'
-      ? config.taglineRu
-      : 'Красота, здоровье и халяль-товары в Атырау';
-  const titleKz =
-    config.taglineKz && config.taglineKz !== 'Сұлулық. Денсаулық. Сенім.'
-      ? config.taglineKz
-      : 'Атыраудағы сұлулық, денсаулық және халал өнімдер';
-
-  const subtitleRu =
-    config.subtitleRu && !config.subtitleRu.includes('Премиальные товары для здоровья, красоты и повседневной')
-      ? config.subtitleRu
-      : 'Витамины iHerb, БАДы, товары для мужского и женского здоровья, мед, хиджама и мусульманские ароматы.';
-  const subtitleKz =
-    config.subtitleKz && !config.subtitleKz.includes('Атыраудағы денсаулық, сұлулық және күнделікті')
-      ? config.subtitleKz
-      : 'iHerb дәрумендері, ББҚ, ерлер мен әйелдер денсаулығына арналған өнімдер, бал, хиджама және мұсылман хош иістері.';
-
-  // Categories to show in quick chips (excluding "Все товары")
-  const activeChips =
-    categories && categories.length > 0
-      ? categories.filter((c) => c.id !== 'cat-all')
-      : [
-          { id: 'cat-iherb', nameRu: 'Витамины iHerb', nameKz: 'iHerb Витаминдер', icon: '💊' },
-          { id: 'cat-health', nameRu: 'БАДы & Омега-3', nameKz: 'ББҚ & Омега-3', icon: '🌿' },
-          { id: 'cat-men', nameRu: 'Мужское здоровье', nameKz: 'Ерлер денсаулығы', icon: '💪' },
-          { id: 'cat-women', nameRu: 'Женское здоровье', nameKz: 'Әйелдер денсаулығы', icon: '🌸' },
-          { id: 'cat-honey', nameRu: 'Натуральный мед', nameKz: 'Табиғи бал', icon: '🍯' },
-          { id: 'cat-hijama', nameRu: 'Хиджама', nameKz: 'Хиджама', icon: '🩸' },
-          { id: 'cat-muslim', nameRu: 'Мусульманские ароматы', nameKz: 'Мұсылман хош иістері', icon: '🕌' },
-        ];
+  const whatsappConsultationUrl = `https://wa.me/${config.whatsappNumber || '77781754241'}?text=${encodeURIComponent(
+    isKz ? 'Сәлеметсіз бе! Өнімдер бойынша кеңес алғым келеді' : 'Здравствуйте! Хочу получить консультацию по товарам в Muslim Shop'
+  )}`;
 
   return (
     <div
       id="hero-section"
-      className="relative w-full max-w-full overflow-hidden bg-radial-[at_50%_-20%] from-emerald-900 via-[#051F17] to-[#03140F] text-white border-b border-amber-500/25"
+      className="relative w-full bg-slate-900 text-white border-b border-slate-800 py-8 sm:py-14 overflow-hidden"
     >
-      {/* Decorative ambient gold lighting aura */}
-      <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-10 w-80 h-80 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Subtle luxury bronze glow */}
+      <div className="absolute top-0 right-0 w-96 h-96 bg-[#C5A059]/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Subtle Islamic pattern background effect */}
-      <div
-        className="absolute inset-0 opacity-[0.06] pointer-events-none"
-        style={{
-          backgroundImage: `radial-gradient(#d4af37 1px, transparent 1px)`,
-          backgroundSize: '28px 28px',
-        }}
-      />
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-16 relative z-10 w-full overflow-hidden">
-        <div className="max-w-3xl">
-          {/* Boutique Tag */}
-          <div
-            id="hero-boutique-badge"
-            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-300 text-[12px] sm:text-sm font-semibold tracking-wide mb-4 sm:mb-5 backdrop-blur-md shadow-xs flex-wrap max-w-full"
-          >
-            <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
-            <span className="font-serif tracking-wider font-bold whitespace-nowrap">MUSLIM SHOP</span>
-            <span className="text-amber-400/40">•</span>
-            <span className="whitespace-nowrap">{config.city}</span>
-            <span className="text-amber-400/40">•</span>
-            <span className="text-amber-200 font-medium whitespace-nowrap">{config.boutiqueNumber}</span>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
+        <div className="max-w-3xl space-y-4 sm:space-y-5">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs sm:text-sm font-semibold tracking-wide">
+            <span className="w-2 h-2 rounded-full bg-[#C5A059]" />
+            <span className="font-extrabold text-[#C5A059]">MUSLIM SHOP</span>
+            <span className="text-slate-600">•</span>
+            <span className="text-slate-300">г. Атырау, Рынок Дина, Бутик №24</span>
           </div>
 
           {/* Heading */}
           <h1
             id="hero-main-title"
-            className="font-serif text-[clamp(24px,6.5vw,34px)] sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.2] sm:leading-[1.18] mb-4 sm:mb-6 drop-shadow-sm text-balance"
+            className="font-sans text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white leading-tight"
           >
             {isKz ? (
               <>
-                <span className="block">Атыраудағы сұлулық, денсаулық</span>
-                <span className="block mt-1.5 text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-300 to-amber-100 font-serif">
-                  және халал өнімдер
-                </span>
+                <span>Атыраудағы сұлулық, денсаулық </span>
+                <span className="text-[#C5A059]">және халал өнімдер</span>
               </>
             ) : (
               <>
-                <span className="block">Красота, здоровье</span>
-                <span className="block mt-1.5 text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-300 to-amber-100 font-serif">
-                  и халяль-товары в Атырау
-                </span>
+                <span>Оригинальные витамины, БАДы </span>
+                <span className="text-[#C5A059]">и халяль-товары в Атырау</span>
               </>
             )}
           </h1>
 
           {/* Subtitle */}
-          <p
-            id="hero-subtitle"
-            className="text-emerald-100/95 text-base sm:text-xl font-normal leading-relaxed mb-7 max-w-2xl text-balance"
-          >
-            {isKz ? subtitleKz : subtitleRu}
+          <p className="text-sm sm:text-lg text-slate-300 leading-relaxed max-w-2xl">
+            {isKz
+              ? 'iHerb дәрумендері, ББҚ, ерлер мен әйелдер денсаулығына арналған өнімдер, бал, хиджама және мұсылман хош иістері. Атырау қаласы бойынша жылдам жеткізу.'
+              : 'Витамины iHerb, БАДы, омега-3, коллаген, мужское и женское здоровье, мед, хиджама и натуральная косметика. Все товары в наличии в Бутике №24.'}
           </p>
 
-          {/* Quick Category Visual Chips (Наглядные акценты каталогов) */}
-          <div
-            id="hero-quick-chips"
-            className="flex flex-wrap items-center gap-2 sm:gap-2.5 mb-7 sm:mb-8"
-          >
-            {activeChips.map((chip) => {
-              const isSelected = selectedCategoryId === chip.id;
-              const chipName = isKz && chip.nameKz ? chip.nameKz : chip.nameRu;
-
-              return (
-                <button
-                  key={chip.id}
-                  id={`hero-chip-${chip.id}`}
-                  type="button"
-                  onClick={() => {
-                    if (onSelectCategory) {
-                      onSelectCategory(chip.id);
-                    }
-                    onScrollToCatalog();
-                  }}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer select-none active:scale-97 ${
-                    isSelected
-                      ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 font-extrabold shadow-md shadow-amber-500/25 ring-2 ring-amber-300'
-                      : 'bg-[#0B261D]/90 hover:bg-[#12362A] border border-amber-500/25 hover:border-amber-400/60 text-stone-100 hover:text-white backdrop-blur-xs'
-                  }`}
-                >
-                  <span className="text-base">{chip.icon || '✨'}</span>
-                  <span>{chipName}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Action Buttons */}
-          <div id="hero-actions" className="flex flex-wrap items-center gap-3 sm:gap-4">
+          {/* CTAs: Large, comfortable for mobile */}
+          <div className="pt-2 flex flex-wrap items-center gap-3">
             <button
-              id="hero-view-catalog-btn"
+              type="button"
               onClick={onScrollToCatalog}
-              className="inline-flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 hover:from-amber-300 hover:to-amber-200 text-stone-950 font-extrabold text-sm sm:text-base shadow-xl shadow-amber-500/25 active:scale-98 transition-all cursor-pointer"
+              className="h-12 sm:h-13 px-6 sm:px-8 rounded-xl bg-[#C5A059] hover:bg-[#B38F48] text-slate-950 font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-colors cursor-pointer"
             >
-              <span>{isKz ? 'Каталогты қарау' : 'Перейти в каталог'}</span>
-              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>{isKz ? 'Каталогты көру' : 'Перейти к покупкам'}</span>
+              <ArrowRight className="w-5 h-5 stroke-[2.5]" />
             </button>
 
             <a
-              id="hero-whatsapp-btn"
-              href={`https://wa.me/${config.whatsappNumber}?text=${encodeURIComponent(
-                isKz
-                  ? 'Сәлеметсіз бе! Дәрумендер мен халал өнімдер бойынша кеңес алғым келеді.'
-                  : 'Здравствуйте! Хочу проконсультироваться по витаминам и продукции бутика.'
-              )}`}
+              href={whatsappConsultationUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3.5 sm:py-4 rounded-2xl bg-[#0D2C21] hover:bg-[#133B2D] text-white font-bold text-sm sm:text-base border border-amber-400/35 transition-colors shadow-xs"
+              className="h-12 sm:h-13 px-5 sm:px-6 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 border border-slate-700 transition-colors cursor-pointer"
             >
-              <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 shrink-0" />
-              <span>{isKz ? 'WhatsApp кеңес' : 'WhatsApp заказ / Консультация'}</span>
-            </a>
-
-            <a
-              id="hero-gis-btn"
-              href={config.gis2Url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-3.5 sm:py-4 rounded-2xl bg-[#071A14] hover:bg-[#0D2920] text-emerald-100 hover:text-white font-bold text-sm sm:text-base border border-emerald-700/50 transition-colors"
-            >
-              <MapPin className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 shrink-0" />
-              <span>{isKz ? '2GIS Бутик №24' : 'Бутик №24 в 2GIS'}</span>
+              <MessageCircle className="w-5 h-5 text-emerald-400" />
+              <span>{isKz ? 'WhatsApp кеңес' : 'Консультация в WhatsApp'}</span>
             </a>
           </div>
-        </div>
 
-        {/* 4 Trust Feature Blocks */}
-        <div
-          id="hero-features-grid"
-          className="mt-10 sm:mt-12 pt-6 sm:pt-8 border-t border-amber-500/20 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"
-        >
-          <div
-            id="feature-halal"
-            className="flex items-start gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#081F17]/90 border border-amber-400/20 backdrop-blur-xs min-w-0"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0 border border-amber-400/30">
-              <ShieldCheck className="w-5 h-5" />
+          {/* Quick facts row */}
+          <div className="pt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 border-t border-slate-800/80 text-xs sm:text-sm text-slate-300">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#C5A059] shrink-0" />
+              <span>100% Түпнұсқа сапа</span>
             </div>
-            <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-bold text-white truncate">100% Халяль</h3>
-              <p className="text-xs sm:text-sm text-emerald-200/85 mt-1 leading-snug line-clamp-2">
-                {isKz ? 'Тексерілген табиғи құрамдар' : 'Проверенные чистые составы'}
-              </p>
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-[#C5A059] shrink-0" />
+              <span>Жеткізу: Атырау & ҚР</span>
             </div>
-          </div>
-
-          <div
-            id="feature-direct"
-            className="flex items-start gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#081F17]/90 border border-amber-400/20 backdrop-blur-xs min-w-0"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0 border border-amber-400/30">
-              <Award className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-bold text-white truncate">
-                {isKz ? 'iHerb импорт' : 'iHerb & Импорт'}
-              </h3>
-              <p className="text-xs sm:text-sm text-emerald-200/85 mt-1 leading-snug line-clamp-2">
-                {isKz ? 'АҚШ, Дубай, Мекке, Египет' : 'Оригинал из США, ОАЭ, Мекки'}
-              </p>
-            </div>
-          </div>
-
-          <div
-            id="feature-delivery"
-            className="flex items-start gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#081F17]/90 border border-amber-400/20 backdrop-blur-xs min-w-0"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-400/30">
-              <Truck className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-bold text-white truncate">
-                {isKz ? 'Жылдам жеткізу' : 'Быстрая доставка'}
-              </h3>
-              <p className="text-xs sm:text-sm text-emerald-200/85 mt-1 leading-snug line-clamp-2">
-                {isKz ? 'Күні бойы курьермен' : 'В день заказа по городу и РК'}
-              </p>
-            </div>
-          </div>
-
-          <div
-            id="feature-boutique"
-            className="flex items-start gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#081F17]/90 border border-amber-400/20 backdrop-blur-xs min-w-0"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-400/30">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-bold text-white truncate">
-                {config.boutiqueNumber} • {config.city}
-              </h3>
-              <p className="text-xs sm:text-sm text-emerald-200/85 mt-1 leading-snug line-clamp-2">
-                {isKz ? config.workingHoursKz : config.workingHoursRu}
-              </p>
+            <div className="flex items-center gap-2 col-span-2 sm:col-span-1">
+              <MapPin className="w-4 h-4 text-[#C5A059] shrink-0" />
+              <span>Дина базары, Бутик 24</span>
             </div>
           </div>
         </div>
@@ -273,4 +113,3 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     </div>
   );
 };
-

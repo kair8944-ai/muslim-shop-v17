@@ -50,6 +50,41 @@ interface BundleBlueprint {
 
 const BUNDLE_BLUEPRINTS: BundleBlueprint[] = [
   {
+    id: 'bundle-beauty-women',
+    symptomId: 'beauty',
+    titleRu: 'Польза в комплексе: Кожа, Волосы и Баланс',
+    titleKz: 'Кешенді пайда: Тері, Шаш және Баланс',
+    subtitleRu: 'Густые волосы, упругая кожа, крепкие ногти и женский баланс',
+    subtitleKz: 'Қалың шаш, серпімді тері, мықты тырнақ және әйелдер балансы',
+    synergyRu:
+      'Коллаген даёт строительный белок для кожи и волос, Биотин ускоряет их рост, а Железо и женские витамины возвращают бодрость и румянец.',
+    synergyKz:
+      'Коллаген тері мен шашқа құрылыс ақуызын береді, Биотин олардың өсуін жылдамдатады, ал Темір мен әйелдер дәрумендері сергектік пен қызыл шырайды қайтарады.',
+    durationRu: 'Курс на 1–2 месяца',
+    durationKz: '1–2 айлық курс',
+    discountPercent: 10,
+    slots: [
+      {
+        roleRu: '1. Молодость кожи',
+        roleKz: '1. Тері жастығы',
+        keywords: ['youtheory', 'коллаген youtheory', 'collagen skin', 'коллаген'],
+        fallbackCategoryIds: ['cat-beauty', 'cat-iherb'],
+      },
+      {
+        roleRu: '2. Рост и густота волос',
+        roleKz: '2. Шаштың өсуі мен қалыңдығы',
+        keywords: ['altun deva marine collagen', 'marine collagen peptides', 'altun deva', 'биотин'],
+        fallbackCategoryIds: ['cat-beauty', 'cat-women'],
+      },
+      {
+        roleRu: '3. Женский баланс',
+        roleKz: '3. Әйелдер балансы',
+        keywords: ['altun deva iron complex', 'iron complex syrup', 'детский и подростковый комплекс с железом', 'железо'],
+        fallbackCategoryIds: ['cat-women', 'cat-iherb'],
+      },
+    ],
+  },
+  {
     id: 'bundle-immunity',
     symptomId: 'immunity',
     titleRu: 'Крепкий иммунитет всей семьи',
@@ -81,41 +116,6 @@ const BUNDLE_BLUEPRINTS: BundleBlueprint[] = [
         roleKz: 'Жасушалық қолдау',
         keywords: ['омега', 'omega', 'рыбий жир', 'fish oil'],
         fallbackCategoryIds: ['cat-iherb', 'cat-health'],
-      },
-    ],
-  },
-  {
-    id: 'bundle-beauty-women',
-    symptomId: 'beauty',
-    titleRu: 'Женское здоровье, красота и сияние',
-    titleKz: 'Әйелдер денсаулығы мен сұлулығы',
-    subtitleRu: 'Густые волосы, упругая кожа, крепкие ногти и гормональный баланс',
-    subtitleKz: 'Қалың шаш, серпімді тері, мықты тырнақ және гормоналды тепе-теңдік',
-    synergyRu:
-      'Коллаген даёт строительный белок для кожи и волос, Биотин ускоряет их рост, а Железо и женские витамины возвращают бодрость и румянец.',
-    synergyKz:
-      'Коллаген тері мен шашты нәрлендіреді, Биотин өсуін тездетеді, ал Темір мен дәрумендер қуат береді.',
-    durationRu: 'Курс на 1–2 месяца',
-    durationKz: '1–2 айлық курс',
-    discountPercent: 10,
-    slots: [
-      {
-        roleRu: 'Молодость кожи',
-        roleKz: 'Тері жастығы',
-        keywords: ['коллаген', 'collagen', 'гиалурон', 'hyaluronic'],
-        fallbackCategoryIds: ['cat-beauty', 'cat-iherb'],
-      },
-      {
-        roleRu: 'Рост и густота волос',
-        roleKz: 'Шаштың өсуі',
-        keywords: ['биотин', 'biotin', 'волос', 'шаш', 'hair', 'ногт'],
-        fallbackCategoryIds: ['cat-beauty', 'cat-women'],
-      },
-      {
-        roleRu: 'Женский баланс',
-        roleKz: 'Әйелдер балансы',
-        keywords: ['железо', 'iron', 'женск', 'примул', 'фолиев', 'инозитол', 'хельба'],
-        fallbackCategoryIds: ['cat-women', 'cat-iherb'],
       },
     ],
   },
@@ -382,23 +382,23 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
     <section
       id="smart-health-bundles-section"
       aria-label={isKz ? 'Дайын денсаулық кешендері' : 'Готовые комплексы и курсы здоровья со скидкой'}
-      className="w-full bg-[#061812] border-b border-amber-500/20 py-7 sm:py-10"
+      className="w-full bg-[#f4f5f7] border-b border-slate-200 py-6 sm:py-9"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         {/* Section Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
           <div>
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-amber-300 mb-1.5">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-[#0567BA] mb-1">
               <span>{isKz ? 'Тиімді жиынтықтар' : 'Комплексный подход Бутика №24'}</span>
               <span aria-hidden="true">·</span>
-              <span>{isKz ? 'Жиынтыққа -10% жеңілдік' : 'Выгода 10% при покупке набора'}</span>
+              <span className="text-[#2db972]">{isKz ? 'Жиынтыққа -10% жеңілдік' : 'Выгода 10% при покупке набора'}</span>
             </div>
-            <h2 className="font-serif font-extrabold text-2xl sm:text-3xl text-white leading-tight">
+            <h2 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 leading-tight">
               {isKz
                 ? 'Дайын денсаулық курстары мен кешендері'
                 : 'Готовые курсы здоровья и комплексы со скидкой'}
             </h2>
-            <p className="text-xs sm:text-sm text-emerald-100/80 mt-1.5 max-w-2xl leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-2xl leading-relaxed">
               {isKz
                 ? 'Бірін-бірі толықтыратын 3 өнімнен тұратын дайын жиынтықтар. Қажеттілерін таңдап, 1 басу арқылы себетке қосыңыз немесе WhatsApp арқылы жеңілдікпен тапсырыс беріңіз.'
                 : 'Подобранные сочетания из 3 товаров, которые усиливают действие друг друга. Берите весь набор целиком в 1 клик или отмечайте галочкой нужные позиции.'}
@@ -409,10 +409,10 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
             <button
               type="button"
               onClick={() => setVariationSeed((prev) => prev + 1)}
-              className="px-3.5 py-2 rounded-xl bg-[#0B261C] hover:bg-[#12382A] text-amber-300 border border-amber-500/35 text-xs sm:text-sm font-bold flex items-center gap-2 transition-colors cursor-pointer shrink-0"
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs sm:text-sm font-bold flex items-center gap-2 transition-colors cursor-pointer shrink-0 shadow-xs"
               title={isKz ? 'Жиынтықтағы тауарларды жаңарту' : 'Подобрать другие варианты товаров в наборы'}
             >
-              <RefreshCw className="w-4 h-4 text-amber-400 shrink-0" />
+              <RefreshCw className="w-4 h-4 text-[#0567BA] shrink-0" />
               <span>{isKz ? 'Басқа нұсқалар' : 'Другие варианты наборов'}</span>
             </button>
           </div>
@@ -425,8 +425,8 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
             onClick={() => setActiveBundleId('all')}
             className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition-colors cursor-pointer shrink-0 border ${
               activeBundleId === 'all'
-                ? 'bg-amber-400 text-stone-950 border-amber-300 shadow-md'
-                : 'bg-[#0B241B] text-stone-200 hover:text-amber-300 border-amber-500/25'
+                ? 'bg-[#0567BA] text-white border-[#0567BA] shadow-xs'
+                : 'bg-white text-slate-700 hover:text-[#0567BA] border-slate-200'
             }`}
           >
             {isKz ? 'Барлық курстар (6)' : 'Все курсы (6)'}
@@ -440,8 +440,8 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                 onClick={() => setActiveBundleId(isSelected ? 'all' : b.id)}
                 className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-colors cursor-pointer shrink-0 border flex items-center gap-1.5 ${
                   isSelected
-                    ? 'bg-amber-400 text-stone-950 border-amber-300 shadow-md'
-                    : 'bg-[#0B241B] text-stone-200 hover:text-amber-300 border-amber-500/25'
+                    ? 'bg-[#0567BA] text-white border-[#0567BA] shadow-xs'
+                    : 'bg-white text-slate-700 hover:text-[#0567BA] border-slate-200'
                 }`}
               >
                 <span>{isKz ? b.titleKz : b.titleRu}</span>
@@ -451,7 +451,7 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
         </div>
 
         {/* Bundles Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
           {visibleBundles.map((bundle) => {
             const selectedItems = bundle.items.filter(
               (item) => !uncheckedMap[`${bundle.id}:${item.product.id}`]
@@ -462,7 +462,6 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                 : bundle.items.map((i) => i.product);
 
             const regularTotal = activeProducts.reduce((sum, p) => sum + p.price, 0);
-            // Apply 10% bundle discount when 2 or more products are selected in the bundle
             const hasBundleDiscount = activeProducts.length >= 2;
             const discountAmount = hasBundleDiscount
               ? Math.round((regularTotal * bundle.discountPercent) / 100)
@@ -494,35 +493,35 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
             return (
               <div
                 key={bundle.id}
-                className="rounded-3xl bg-[#0A221A] border border-amber-500/30 p-5 flex flex-col justify-between gap-4 shadow-xl"
+                className="rounded-2xl bg-white border border-slate-200/90 p-4 sm:p-5 flex flex-col justify-between gap-4 shadow-sm hover:shadow-md transition-shadow"
               >
                 {/* Top Header */}
                 <div>
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-2xl bg-[#061510] border border-amber-400/35 flex items-center justify-center shrink-0">
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0 text-[#0567BA]">
                         {getBundleIcon(bundle.symptomId)}
                       </div>
-                      <div className="text-xs text-amber-300 font-semibold">
+                      <div className="text-xs text-slate-500 font-semibold">
                         <span>{isKz ? bundle.durationKz : bundle.durationRu}</span>
                         <span aria-hidden="true"> · </span>
-                        <span className="text-emerald-300 font-bold">
+                        <span className="text-[#2db972] font-bold">
                           -{bundle.discountPercent}% {isKz ? 'жиынтыққа' : 'на набор'}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <h3 className="font-serif font-extrabold text-xl text-white leading-snug">
+                  <h3 className="font-sans font-bold text-lg text-slate-900 leading-snug">
                     {isKz ? bundle.titleKz : bundle.titleRu}
                   </h3>
-                  <p className="text-xs sm:text-sm text-emerald-100/80 mt-1 leading-relaxed">
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                     {isKz ? bundle.subtitleKz : bundle.subtitleRu}
                   </p>
 
                   {/* Synergy Explanation */}
-                  <div className="mt-3 pt-3 border-t border-amber-500/15 text-xs text-stone-300 leading-relaxed">
-                    <span className="font-bold text-amber-300">
+                  <div className="mt-2.5 pt-2.5 border-t border-slate-100 text-xs text-slate-600 leading-relaxed">
+                    <span className="font-bold text-[#0567BA]">
                       {isKz ? 'Неліктен бірге тиімді: ' : 'Польза в комплексе: '}
                     </span>
                     {isKz ? bundle.synergyKz : bundle.synergyRu}
@@ -530,60 +529,60 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                 </div>
 
                 {/* 3 Products List inside the Bundle */}
-                <div className="space-y-2.5 my-1">
+                <div className="space-y-2 my-1">
                   {bundle.items.map((slot, idx) => {
                     const prod = slot.product;
                     const isChecked = !uncheckedMap[`${bundle.id}:${prod.id}`];
                     return (
                       <div
                         key={prod.id}
-                        className={`p-2.5 rounded-2xl border transition-colors flex items-center gap-2.5 ${
+                        className={`p-2 rounded-xl border transition-colors flex items-center gap-2.5 ${
                           isChecked
-                            ? 'bg-[#061611] border-amber-500/25'
-                            : 'bg-[#05120E]/50 border-white/10 opacity-60'
+                            ? 'bg-slate-50 border-slate-200'
+                            : 'bg-white border-slate-100 opacity-60'
                         }`}
                       >
-                        {/* Checkbox to include/exclude item */}
+                        {/* Checkbox */}
                         <button
                           type="button"
                           onClick={() => toggleItemChecked(bundle.id, prod.id)}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-colors cursor-pointer shrink-0 ${
+                          className={`w-5 h-5 rounded flex items-center justify-center border transition-colors cursor-pointer shrink-0 ${
                             isChecked
-                              ? 'bg-amber-400 border-amber-300 text-stone-950'
-                              : 'bg-transparent border-stone-500 text-transparent'
+                              ? 'bg-[#ffbd00] border-[#e5aa00] text-slate-900'
+                              : 'bg-white border-slate-300 text-transparent'
                           }`}
                           aria-label={isKz ? 'Тауарды таңдау' : 'Выбрать товар в наборе'}
                         >
-                          <Check className="w-4 h-4 stroke-[3]" />
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
                         </button>
 
                         {/* Product Thumbnail */}
                         <button
                           type="button"
                           onClick={() => onOpenProduct(prod)}
-                          className="w-12 h-12 rounded-xl overflow-hidden bg-stone-900 border border-amber-500/25 shrink-0 cursor-pointer"
+                          className="w-11 h-11 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0 cursor-pointer p-0.5"
                         >
                           <img
                             src={prod.images?.[0]}
                             alt={isKz ? prod.titleKz || prod.titleRu : prod.titleRu}
                             referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
                           />
                         </button>
 
                         {/* Product Title & Role */}
                         <div className="flex-1 min-w-0">
-                          <div className="text-[11px] text-amber-300/90 font-semibold truncate">
+                          <div className="text-[10px] text-slate-400 font-semibold truncate">
                             {idx + 1}. {isKz ? slot.roleKz : slot.roleRu}
                           </div>
                           <button
                             type="button"
                             onClick={() => onOpenProduct(prod)}
-                            className="text-left text-xs sm:text-sm font-bold text-white hover:text-amber-300 line-clamp-1 transition-colors cursor-pointer"
+                            className="text-left text-xs font-semibold text-slate-900 hover:text-[#0567BA] line-clamp-1 transition-colors cursor-pointer"
                           >
                             {isKz ? prod.titleKz || prod.titleRu : prod.titleRu}
                           </button>
-                          <div className="text-xs font-mono tabular-nums font-extrabold text-emerald-300 mt-0.5">
+                          <div className="text-xs font-sans font-bold text-slate-900 mt-0.5">
                             {formatPrice(prod.price)}
                           </div>
                         </div>
@@ -592,10 +591,10 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                         <button
                           type="button"
                           onClick={() => onOpenProduct(prod)}
-                          className="p-2 rounded-xl bg-[#0B241B] hover:bg-[#133B2D] text-amber-300 border border-amber-500/20 cursor-pointer shrink-0"
+                          className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-500 border border-slate-200 cursor-pointer shrink-0"
                           title={isKz ? 'Тауарды көру' : 'Подробнее о товаре'}
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     );
@@ -603,30 +602,30 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                 </div>
 
                 {/* Bundle Pricing Summary & Action Buttons */}
-                <div className="pt-3 border-t border-amber-500/20 space-y-3">
+                <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
                   <div className="flex items-end justify-between gap-2">
                     <div>
-                      <div className="text-xs text-stone-300">
+                      <div className="text-xs text-slate-500">
                         {isKz
                           ? `Таңдалды: ${activeProducts.length} өнім`
-                          : `Выбрано в наборе: ${activeProducts.length} шт.`}
+                          : `Выбрано: ${activeProducts.length} шт.`}
                       </div>
                       {hasBundleDiscount && (
-                        <div className="text-xs text-emerald-300 font-bold mt-0.5">
+                        <div className="text-xs text-[#2db972] font-bold mt-0.5">
                           {isKz
-                            ? `Сіздің пайдаңыз: ${formatPrice(discountAmount)}`
-                            : `Ваша выгода: ${formatPrice(discountAmount)} (-${bundle.discountPercent}%)`}
+                            ? `Үнемдеу: ${formatPrice(discountAmount)}`
+                            : `Экономия: ${formatPrice(discountAmount)} (-${bundle.discountPercent}%)`}
                         </div>
                       )}
                     </div>
 
                     <div className="text-right">
                       {hasBundleDiscount && (
-                        <div className="text-xs font-mono tabular-nums text-stone-400 line-through">
+                        <div className="text-xs text-slate-400 line-through">
                           {formatPrice(regularTotal)}
                         </div>
                       )}
-                      <div className="text-lg sm:text-xl font-mono tabular-nums font-extrabold text-amber-300">
+                      <div className="text-lg font-bold text-slate-900">
                         {formatPrice(finalBundlePrice)}
                       </div>
                     </div>
@@ -643,17 +642,17 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                         setAddedBundleId(bundle.id);
                         setTimeout(() => setAddedBundleId(null), 2500);
                       }}
-                      className="py-2.5 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md transition-colors cursor-pointer"
+                      className="py-2 px-3 rounded-lg bg-[#ffbd00] hover:bg-[#febd01] active:bg-[#e5aa00] text-slate-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer uppercase tracking-wider"
                     >
                       {isJustAdded ? (
                         <>
-                          <Check className="w-4 h-4 stroke-[2.5] shrink-0" />
-                          <span>{isKz ? 'Себетке қосылды!' : 'Набор в корзине!'}</span>
+                          <Check className="w-4 h-4 stroke-[2.5] shrink-0 text-slate-900" />
+                          <span>{isKz ? 'Қосылды!' : 'Добавлено!'}</span>
                         </>
                       ) : (
                         <>
-                          <ShoppingBag className="w-4 h-4 shrink-0" />
-                          <span>{isKz ? 'Жиынтықты себетке' : 'Взять набор в корзину'}</span>
+                          <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
+                          <span>{isKz ? 'Себетке салу' : 'В корзину'}</span>
                         </>
                       )}
                     </button>
@@ -661,10 +660,10 @@ export const SmartHealthBundles: React.FC<SmartHealthBundlesProps> = ({
                     <button
                       type="button"
                       onClick={handleWhatsAppBundleOrder}
-                      className="py-2.5 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-400/30 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md transition-colors cursor-pointer"
+                      className="py-2 px-3 rounded-lg bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                     >
                       <MessageCircle className="w-4 h-4 shrink-0" />
-                      <span>{isKz ? 'WhatsApp (-10%)' : 'В WhatsApp (-10%)'}</span>
+                      <span>{isKz ? 'WhatsApp заказ' : 'Заказ в WhatsApp'}</span>
                     </button>
                   </div>
                 </div>
