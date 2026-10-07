@@ -9,6 +9,7 @@ import {
   Sparkles,
   Stethoscope,
   Plus,
+  Check,
 } from 'lucide-react';
 import { Category, Language, Product } from '../types';
 import { formatPrice } from '../utils/formatters';
@@ -227,11 +228,13 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
     );
   };
 
+  const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
+
   return (
     <div ref={containerRef} className="relative w-full">
-      {/* Input Box — Modern full-width design with search icon and 'Найти' button */}
-      <div className="relative w-full flex items-center">
-        <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      {/* Modern Flip.kz style search bar: integrated flex container, crisp borders, no overlapping absolute hacks */}
+      <div className="relative w-full flex items-center bg-white rounded-xl sm:rounded-2xl border-2 border-slate-300 focus-within:border-slate-900 focus-within:ring-4 focus-within:ring-slate-900/10 shadow-xs transition-all overflow-hidden h-12 sm:h-13">
+        <Search className="w-5 h-5 text-slate-400 ml-3.5 sm:ml-4 shrink-0 pointer-events-none" />
         <input
           ref={inputRef}
           id={inputId}
@@ -247,13 +250,11 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
           placeholder={
             placeholder ||
             (isKz
-              ? 'Тауарларды іздеу...'
+              ? 'Тауарларды, дәрумендерді іздеу...'
               : 'Поиск товаров по названию или категории...')
           }
           autoComplete="off"
-          className={`w-full pl-11 ${
-            searchQuery ? 'pr-28 sm:pr-32' : 'pr-20 sm:pr-24'
-          } h-12 text-sm sm:text-base font-semibold rounded-2xl border-2 border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 placeholder:truncate focus:outline-none focus:border-[#C5A059] focus:ring-4 focus:ring-[#C5A059]/15 transition-all shadow-xs`}
+          className="w-full h-full px-3 text-sm sm:text-base font-semibold text-slate-900 placeholder:text-slate-400 placeholder:truncate bg-transparent focus:outline-none"
         />
 
         {searchQuery && (
@@ -263,14 +264,14 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
               onSearchChange('');
               inputRef.current?.focus();
             }}
-            className="absolute right-[76px] sm:right-[88px] top-1/2 -translate-y-1/2 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="p-1.5 mr-1 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors cursor-pointer shrink-0"
             title={isKz ? 'Тазалау' : 'Очистить поиск'}
           >
             <X className="w-4 h-4" />
           </button>
         )}
 
-        {/* 'Найти' button inside search bar */}
+        {/* 'Найти' button integrated into search bar */}
         <button
           type="button"
           onClick={() => {
@@ -278,9 +279,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             scrollToCatalogSection();
             if (onAfterSelect) onAfterSelect();
           }}
-          className="absolute right-1.5 top-1.5 bottom-1.5 px-4 sm:px-5 rounded-xl bg-[#C5A059] hover:bg-[#b38f48] active:bg-[#a07e38] text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center transition-colors cursor-pointer shadow-xs select-none"
+          className="h-full px-4 sm:px-6 bg-slate-900 hover:bg-black active:bg-slate-950 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shrink-0 transition-colors cursor-pointer select-none border-l border-slate-200"
         >
-          {isKz ? 'Табу' : 'Найти'}
+          <Search className="w-4 h-4 text-[#C5A059]" />
+          <span className="hidden xs:inline">{isKz ? 'Табу' : 'Найти'}</span>
         </button>
       </div>
 
@@ -525,14 +527,29 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onAddToCart(prod);
+                                setRecentlyAddedId(prod.id);
+                                setTimeout(() => setRecentlyAddedId(null), 1800);
                               }}
-                              className="h-10 px-3.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer shadow-xs"
+                              className={`h-10 px-3.5 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer shadow-xs ${
+                                recentlyAddedId === prod.id
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-900 hover:bg-black text-white'
+                              }`}
                               title={isKz ? 'Себетке қосу' : 'Добавить в корзину'}
                             >
-                              <ShoppingBag className="w-4 h-4 text-[#C5A059]" />
-                              <span className="hidden min-[420px]:inline">
-                                {isKz ? 'Себетке' : 'В корзину'}
-                              </span>
+                              {recentlyAddedId === prod.id ? (
+                                <>
+                                  <Check className="w-4 h-4 text-emerald-200 stroke-[3]" />
+                                  <span>{isKz ? 'Қосылды!' : 'Добавлено!'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ShoppingBag className="w-4 h-4 text-[#C5A059]" />
+                                  <span className="hidden min-[420px]:inline">
+                                    {isKz ? 'Себетке' : 'В корзину'}
+                                  </span>
+                                </>
+                              )}
                             </button>
                           )}
                         </div>

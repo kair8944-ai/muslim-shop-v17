@@ -933,8 +933,10 @@ export default function App() {
 
   // Cart handlers
   const handleAddToCart = (product: Product) => {
+    let currentQty = 1;
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
+      currentQty = existing ? existing.quantity + 1 : 1;
       const next = existing
         ? prev.map((item) =>
             item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
@@ -945,6 +947,13 @@ export default function App() {
       } catch {}
       return next;
     });
+
+    const title = lang === 'kz' && product.titleKz?.trim() ? product.titleKz : product.titleRu;
+    showToast(
+      lang === 'kz'
+        ? `🛒 «${title}» себетке қосылды (${currentQty} дана)!`
+        : `🛒 «${title}» добавлен в корзину (${currentQty} шт.)!`
+    );
   };
 
   const handleAddBundleToCart = (bundleProducts: Product[], bundleTitle: string) => {

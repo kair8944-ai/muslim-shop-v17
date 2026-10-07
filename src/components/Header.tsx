@@ -139,20 +139,32 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
 
-            {/* Quick Catalog Button (Desktop) */}
+            {/* Quick Catalog Button (Desktop & Tablet) */}
             {onOpenCatalog && (
               <button
                 type="button"
                 onClick={onOpenCatalog}
-                className="hidden lg:flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                className="hidden md:flex items-center gap-2 px-3.5 sm:px-4 h-12 rounded-xl sm:rounded-2xl bg-slate-900 hover:bg-black text-white text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer shrink-0"
               >
                 <Layers className="w-4 h-4 text-[#C5A059]" />
                 <span>{isKz ? 'Каталог' : 'Каталог'}</span>
               </button>
             )}
 
-            {/* Right Buttons on Mobile: Admin + Cart */}
-            <div className="flex items-center gap-2 md:hidden">
+            {/* Right Buttons on Mobile: Catalog + Admin + Cart */}
+            <div className="flex items-center gap-1.5 sm:gap-2 md:hidden">
+              {onOpenCatalog && (
+                <button
+                  type="button"
+                  onClick={onOpenCatalog}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs"
+                  title="Каталог товаров"
+                >
+                  <Layers className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>{isKz ? 'Каталог' : 'Каталог'}</span>
+                </button>
+              )}
+
               <SyncStatusWidget lang={lang} variant="header" products={products} />
 
               <button

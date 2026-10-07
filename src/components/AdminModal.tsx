@@ -282,7 +282,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
 
     const targetPin = config.adminPin?.trim() || '505534';
-    const isMatch = pin.trim() === targetPin || pin.trim() === '505534' || pin.trim() === '1234';
+    const isMatch = pin.trim() === targetPin || pin.trim() === '505534';
     if (isMatch) {
       setIsAuthenticated(true);
       setErrorMsg('');
@@ -558,7 +558,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleAddNewProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmittingAddProductRef.current || isSaving) return;
-    if (!newTitleRu.trim() || !newPrice) return;
+
+    if (!newTitleRu.trim()) {
+      setCopyFeedbackMsg('⚠️ Введите название товара на русском языке');
+      return;
+    }
+
+    const cleanPrice = parseFloat(String(newPrice).replace(/\s+/g, '').replace(/,/g, '.'));
+    if (isNaN(cleanPrice) || cleanPrice <= 0) {
+      setCopyFeedbackMsg('⚠️ Введите корректную цену товара (положительное число)');
+      return;
+    }
+
+    let cleanOldPrice: number | undefined = undefined;
+    if (newOldPrice) {
+      const parsedOld = parseFloat(String(newOldPrice).replace(/\s+/g, '').replace(/,/g, '.'));
+      if (!isNaN(parsedOld) && parsedOld > 0) {
+        cleanOldPrice = parsedOld;
+      }
+    }
 
     isSubmittingAddProductRef.current = true;
     setIsSaving(true);
@@ -567,9 +585,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       id: newId,
       titleRu: newTitleRu.trim(),
       titleKz: newTitleKz.trim() || newTitleRu.trim(),
-      price: Number(newPrice),
-      oldPrice: newOldPrice ? Number(newOldPrice) : undefined,
-      categoryId: newCategory,
+      price: cleanPrice,
+      oldPrice: cleanOldPrice,
+      categoryId: newCategory || (categories.find((c) => c.id !== 'cat-all')?.id || 'cat-health'),
       descriptionRu: newDescRu.trim() || 'Описание товара',
       descriptionKz: '',
       specsRu: newSpecsRu.trim(),
@@ -613,6 +631,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         setSavedSuccess(false);
         setCopyFeedbackMsg(null);
       }, 5000);
+
+      // Reset filters so the new product is immediately visible at the top of the products tab
+      setAdminCategoryFilter('all');
+      setAdminSearch('');
       setActiveTab('products');
     } catch (err: any) {
       setCopyFeedbackMsg(`⚠️ Не удалось добавить товар: ${err.message || 'Ошибка'}`);
