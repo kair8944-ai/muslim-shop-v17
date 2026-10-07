@@ -51,6 +51,8 @@ export interface PersistedAnalyticsState {
     totalVisits: number;
     uniqueVisitors: number;
     pageViews: number;
+    totalCartAdds?: number;
+    totalOrders?: number;
     lastVisitAt?: string;
   };
   days: Record<
@@ -64,6 +66,10 @@ export interface PersistedAnalyticsState {
       desktopVisits: number;
       ruVisits: number;
       kzVisits: number;
+      cartAdds?: number;
+      ordersCount?: number;
+      hourlyVisits?: Record<string, number>;
+      referrers?: Record<string, number>;
       productViews?: Record<string, { title: string; count: number }>;
       visitIds?: string[];
       visitorIds?: string[];
@@ -257,6 +263,10 @@ function formatStateForUI(state: PersistedAnalyticsState): {
       desktopVisits: Number(item.desktopVisits) || 0,
       ruVisits: Number(item.ruVisits) || 0,
       kzVisits: Number(item.kzVisits) || 0,
+      cartAdds: Number(item.cartAdds) || 0,
+      ordersCount: Number(item.ordersCount) || 0,
+      hourlyVisits: item.hourlyVisits || {},
+      referrers: item.referrers || {},
       productViews,
       updatedAt: item.updatedAt || '',
     };
@@ -268,11 +278,15 @@ function formatStateForUI(state: PersistedAnalyticsState): {
   const sumVisits = dailyList.reduce((acc, d) => acc + d.totalVisits, 0);
   const sumUniques = dailyList.reduce((acc, d) => acc + d.uniqueVisitors, 0);
   const sumViews = dailyList.reduce((acc, d) => acc + d.pageViews, 0);
+  const sumCarts = dailyList.reduce((acc, d) => acc + (d.cartAdds || 0), 0);
+  const sumOrders = dailyList.reduce((acc, d) => acc + (d.ordersCount || 0), 0);
 
   const overview: AnalyticsOverview = {
     totalVisitsAllTime: Math.max(Number(state.overview?.totalVisits) || 0, sumVisits),
     uniqueVisitorsAllTime: Math.max(Number(state.overview?.uniqueVisitors) || 0, sumUniques),
     totalPageViewsAllTime: Math.max(Number(state.overview?.pageViews) || 0, sumViews),
+    totalCartAddsAllTime: Math.max(Number(state.overview?.totalCartAdds) || 0, sumCarts),
+    totalOrdersAllTime: Math.max(Number(state.overview?.totalOrders) || 0, sumOrders),
     lastVisitAt: state.overview?.lastVisitAt,
   };
 
@@ -1080,8 +1094,17 @@ export async function trackVisit(options: {
     )
   );
 
+  const currentHour = String(new Date().getHours()).padStart(2, '0');
+  const hourly = { ...(prevDay.hourlyVisits || {}) };
+  hourly[currentHour] = (hourly[currentHour] || 0) + 1;
+
+  const refMap = { ...(prevDay.referrers || {}) };
+  const refKey = referrer || 'Прямой заход';
+  refMap[refKey] = (refMap[refKey] || 0) + 1;
+
   const updatedState: PersistedAnalyticsState = {
     overview: {
+      ...current.overview,
       totalVisits: (Number(current.overview.totalVisits) || 0) + (effectiveNewSession ? 1 : 0),
       uniqueVisitors: (Number(current.overview.uniqueVisitors) || 0) + (effectiveNewVisitor ? 1 : 0),
       pageViews: (Number(current.overview.pageViews) || 0) + 1,
@@ -1099,6 +1122,8 @@ export async function trackVisit(options: {
         desktopVisits: (Number(prevDay.desktopVisits) || 0) + (device !== 'mobile' ? 1 : 0),
         ruVisits: (Number(prevDay.ruVisits) || 0) + (lang === 'ru' ? 1 : 0),
         kzVisits: (Number(prevDay.kzVisits) || 0) + (lang === 'kz' ? 1 : 0),
+        hourlyVisits: hourly,
+        referrers: refMap,
         visitIds: nextVisitIds,
         visitorIds: nextVisitorIds,
         updatedAt: nowIso,
@@ -1271,6 +1296,186 @@ export async function trackProductView(productId: string, productTitle: string):
       } catch {}
     })(),
   ]);
+}
+
+/**
+ * Tracks Add to Cart event in Local Cache + Cloud Relay + Firestore
+ */
+export async function trackAddToCart(productId: string, productTitle: string): Promise<void> {
+  if (isIgnoreAdminVisits()) return;
+
+  const today = getTodayDateString();
+  const nowIso = new Date().toISOString();
+  const visitorId = getVisitorId().slice(-6);
+  const device = getDeviceType();
+
+  const current = getLocalAnalyticsState();
+  const prevDay = current.days[today] || {
+    date: today,
+    totalVisits: 1,
+    uniqueVisitors: 1,
+    pageViews: 1,
+    mobileVisits: device === 'mobile' ? 1 : 0,
+    desktopVisits: device !== 'mobile' ? 1 : 0,
+    ruVisits: 1,
+    kzVisits: 0,
+    cartAdds: 0,
+    ordersCount: 0,
+    hourlyVisits: {},
+    referrers: {},
+    productViews: {},
+    visitIds: [],
+    visitorIds: [],
+    updatedAt: nowIso,
+    resetToken: 0,
+  };
+
+  const updatedCartAdds = (Number(prevDay.cartAdds) || 0) + 1;
+  const cartVisitItem: VisitLogItem = {
+    id: 'cart_' + Date.now().toString(36),
+    visitorId,
+    timestamp: nowIso,
+    device,
+    lang: 'ru',
+    page: `В корзину: ${productTitle ? productTitle.slice(0, 35) : 'Товар'}`,
+    referrer: 'Каталог бутика',
+    isNewVisitor: false,
+    action: 'cart',
+  };
+
+  const updatedState: PersistedAnalyticsState = {
+    ...current,
+    overview: {
+      ...current.overview,
+      totalCartAdds: (Number(current.overview.totalCartAdds) || 0) + 1,
+      lastVisitAt: nowIso,
+    },
+    days: {
+      ...current.days,
+      [today]: {
+        ...prevDay,
+        cartAdds: updatedCartAdds,
+        updatedAt: nowIso,
+      },
+    },
+    recentVisits: [cartVisitItem, ...(current.recentVisits || [])].slice(0, 40),
+    updatedAt: nowIso,
+  };
+
+  saveLocalAnalyticsState(updatedState);
+
+  try {
+    const docRef = doc(db, SETTINGS_COLLECTION, ANALYTICS_DOC_ID);
+    await withFirestoreTimeout(
+      setDoc(
+        docRef,
+        {
+          overview: {
+            totalCartAdds: increment(1),
+            lastVisitAt: nowIso,
+          },
+          days: {
+            [today]: {
+              cartAdds: increment(1),
+              updatedAt: nowIso,
+            },
+          },
+        },
+        { merge: true }
+      ),
+      1500
+    );
+  } catch {}
+}
+
+/**
+ * Tracks Order checkout / WhatsApp submission in Local Cache + Cloud Relay + Firestore
+ */
+export async function trackOrder(orderType: 'whatsapp' | 'quick_order', amount?: number): Promise<void> {
+  if (isIgnoreAdminVisits()) return;
+
+  const today = getTodayDateString();
+  const nowIso = new Date().toISOString();
+  const visitorId = getVisitorId().slice(-6);
+  const device = getDeviceType();
+
+  const current = getLocalAnalyticsState();
+  const prevDay = current.days[today] || {
+    date: today,
+    totalVisits: 1,
+    uniqueVisitors: 1,
+    pageViews: 1,
+    mobileVisits: device === 'mobile' ? 1 : 0,
+    desktopVisits: device !== 'mobile' ? 1 : 0,
+    ruVisits: 1,
+    kzVisits: 0,
+    cartAdds: 1,
+    ordersCount: 0,
+    hourlyVisits: {},
+    referrers: {},
+    productViews: {},
+    visitIds: [],
+    visitorIds: [],
+    updatedAt: nowIso,
+    resetToken: 0,
+  };
+
+  const updatedOrders = (Number(prevDay.ordersCount) || 0) + 1;
+  const orderVisitItem: VisitLogItem = {
+    id: 'ord_' + Date.now().toString(36),
+    visitorId,
+    timestamp: nowIso,
+    device,
+    lang: 'ru',
+    page: `Заказ (${orderType === 'whatsapp' ? 'Корзина WhatsApp' : 'Быстрый заказ'})`,
+    referrer: 'Оформление заказа',
+    isNewVisitor: false,
+    action: 'order',
+  };
+
+  const updatedState: PersistedAnalyticsState = {
+    ...current,
+    overview: {
+      ...current.overview,
+      totalOrders: (Number(current.overview.totalOrders) || 0) + 1,
+      lastVisitAt: nowIso,
+    },
+    days: {
+      ...current.days,
+      [today]: {
+        ...prevDay,
+        ordersCount: updatedOrders,
+        updatedAt: nowIso,
+      },
+    },
+    recentVisits: [orderVisitItem, ...(current.recentVisits || [])].slice(0, 40),
+    updatedAt: nowIso,
+  };
+
+  saveLocalAnalyticsState(updatedState);
+
+  try {
+    const docRef = doc(db, SETTINGS_COLLECTION, ANALYTICS_DOC_ID);
+    await withFirestoreTimeout(
+      setDoc(
+        docRef,
+        {
+          overview: {
+            totalOrders: increment(1),
+            lastVisitAt: nowIso,
+          },
+          days: {
+            [today]: {
+              ordersCount: increment(1),
+              updatedAt: nowIso,
+            },
+          },
+        },
+        { merge: true }
+      ),
+      1500
+    );
+  } catch {}
 }
 
 /**

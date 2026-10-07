@@ -80,6 +80,10 @@ export interface DailyAnalytics {
   desktopVisits: number;
   ruVisits: number;
   kzVisits: number;
+  cartAdds?: number;
+  ordersCount?: number;
+  hourlyVisits?: Record<string, number>;
+  referrers?: Record<string, number>;
   productViews?: Record<string, { title: string; count: number }>;
   updatedAt: string;
 }
@@ -88,6 +92,8 @@ export interface AnalyticsOverview {
   totalVisitsAllTime: number;
   uniqueVisitorsAllTime: number;
   totalPageViewsAllTime: number;
+  totalCartAddsAllTime?: number;
+  totalOrdersAllTime?: number;
   lastVisitAt?: string;
 }
 
@@ -100,4 +106,5 @@ export interface VisitLogItem {
   page: string;
   referrer?: string;
   isNewVisitor?: boolean;
+  action?: 'view' | 'cart' | 'order';
 }

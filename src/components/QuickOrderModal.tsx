@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, MessageCircle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { Language, Product, StoreConfig } from '../types';
 import { formatPrice, generateQuickOrderUrl } from '../utils/formatters';
+import { trackOrder } from '../services/analyticsService';
 
 interface QuickOrderModalProps {
   product: Product;
@@ -39,6 +40,7 @@ export const QuickOrderModal: React.FC<QuickOrderModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    trackOrder('quick_order', product.price);
     const url = generateQuickOrderUrl(
       config,
       title,

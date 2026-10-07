@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { CartItem, Language, Product, StoreConfig } from '../types';
 import { formatPrice, generateWhatsAppCartUrl } from '../utils/formatters';
+import { trackOrder } from '../services/analyticsService';
 
 interface CartDrawerProps {
   items: CartItem[];
@@ -81,6 +82,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const handleWhatsAppCheckout = (e: React.FormEvent) => {
     e.preventDefault();
     if (items.length === 0) return;
+    trackOrder('whatsapp', finalTotal);
 
     const url = generateWhatsAppCartUrl(
       config,

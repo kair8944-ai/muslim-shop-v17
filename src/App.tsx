@@ -59,7 +59,7 @@ import {
   autoSyncLocalProductsIfNeeded,
   PRODUCTS_CACHE_STORAGE_KEY,
 } from './services/firestoreService';
-import { trackVisit, trackProductView } from './services/analyticsService';
+import { trackVisit, trackProductView, trackAddToCart } from './services/analyticsService';
 import {
   deduplicateProducts,
   extractProductIdFromUrl,
@@ -949,6 +949,7 @@ export default function App() {
     });
 
     const title = lang === 'kz' && product.titleKz?.trim() ? product.titleKz : product.titleRu;
+    trackAddToCart(product.id, title);
     showToast(
       lang === 'kz'
         ? `🛒 «${title}» себетке қосылды (${currentQty} дана)!`
